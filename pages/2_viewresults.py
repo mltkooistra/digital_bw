@@ -11,7 +11,7 @@ if not st.session_state.get("has_submitted"):
     st.stop()
 
 response = requests.get(
-    "https://your-project.supabase.co/rest/v1/submissions?select=*&order=timestamp.desc&limit=1000",
+    f"{st.secrets['supabase_url']}/rest/v1/submissions?select=*&order=timestamp.desc&limit=1000",
     headers={
         "apikey": st.secrets["supabase_key"],
         "Authorization": f"Bearer {st.secrets['supabase_key']}"
