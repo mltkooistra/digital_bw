@@ -3,11 +3,13 @@
 programma's :
 - supabase
   - https://supabase.com
-  - ww:  9!EzYNGe62n%c5g
   - project API key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRudnRobWdlYWZndnFoemJldGp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ5NzU1NDUsImV4cCI6MjA2MDU1MTU0NX0.DE7K3Uzful-ilzK0uUd0mh9Ck5ggc8toeMqocnpT8uQ
   - project url:https://tnvthmgeafgvqhzbetjz.supabase.co
 - streamlink
   - https://werksessiebw.streamlit.app/git 
+  - app link: 
+- gitguardian
+  - om te datalek te checken
 
 
 
@@ -15,7 +17,20 @@ run in terminal:
 python -m streamlit run dashboard.py
 
 
-probleem: github repo moet openbaar zijn, dan kan iedereen de api key zien en dus ook de data bekijken
+
+probleem: github repo moet openbaar zijn, dan kan iedereen de api key zien en dus ook de data bekijken (oplossing betaald account?)
+    - misschien opgelost met secrets file (Ewout hiervoor aanhaken)
 
 
-programma's/;inl
+to do:
+- antwoorden pas zichbaar na invullen
+- antwoorden per groep/sessie invullen
+- sessienaam/wachtwoord 
+- random groepen indelen
+- alle onderdelen van bw
+  - meerdere effecten mogelijk? Hoeveel?
+- visueel aantrekkelijk maken
+- resultaten op een goede manier laten zien
+- groepsronde
+  - belangrijkste effecten kiezen?
+  - 
