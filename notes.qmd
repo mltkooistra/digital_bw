@@ -6,8 +6,16 @@ programma's :
   - ww:  9!EzYNGe62n%c5g
   - project API key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRudnRobWdlYWZndnFoemJldGp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ5NzU1NDUsImV4cCI6MjA2MDU1MTU0NX0.DE7K3Uzful-ilzK0uUd0mh9Ck5ggc8toeMqocnpT8uQ
   - project url:https://tnvthmgeafgvqhzbetjz.supabase.co
+- streamlink
+  - https://werksessiebw.streamlit.app/git 
 
 
 
 run in terminal:
 python -m streamlit run dashboard.py
+
+
+probleem: github repo moet openbaar zijn, dan kan iedereen de api key zien en dus ook de data bekijken
+
+
+programma's/;inl
