@@ -14,12 +14,14 @@ programma's :
 
 
 run in terminal:
-python -m streamlit run dashboard.py
+python -m streamlit run werksessie.py
 
 
 
-probleem: github repo moet openbaar zijn, dan kan iedereen de api key zien en dus ook de data bekijken (oplossing betaald account?)
+probleem: 
+- github repo moet openbaar zijn, dan kan iedereen de api key zien en dus ook de data bekijken (oplossing betaald account?)
     - misschien opgelost met secrets file (Ewout hiervoor aanhaken)
+    - OPGELOST met screts file maar dan werk het niet via streamlit share
 
 
 to do:
