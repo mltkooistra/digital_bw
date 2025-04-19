@@ -16,7 +16,6 @@ if "domain_inputs" not in st.session_state:
 
 st.title("Werksessie Brede Welvaart")
 
-name = st.text_input("Naam (optioneel)")
 
 domains = [
     "Materiële welvaart", "Gezondheid", "Arbeid en vrije tijd", "Wonen",
@@ -70,10 +69,11 @@ if submitted:
                         },
                         json={
                             "submission_id": st.session_state.submission_id,
-                            "name": name if name else "Anonymous",
                             "domain": domain,
                             "text": entry["text"],
-                            "score": entry["score"]
+                            "score": entry["score"],
+                            "name": st.session_state.name,
+                            'session': st.session_state.access_code
                         }
                     )
         st.session_state.has_submitted = True
