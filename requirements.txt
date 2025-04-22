@@ -4,3 +4,4 @@ matplotlib
 wordcloud
 requests
 plotly
+supabase
