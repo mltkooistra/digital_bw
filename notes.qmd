@@ -21,18 +21,26 @@ python -m streamlit run werksessie.py
 probleem: 
 - github repo moet openbaar zijn, dan kan iedereen de api key zien en dus ook de data bekijken (oplossing betaald account?)
     - misschien opgelost met secrets file (Ewout hiervoor aanhaken)
-    - OPGELOST met screts file maar dan werk het niet via streamlit share
+    - 
 
 
 to do:
-- antwoorden pas zichbaar na invullen
-- antwoorden per groep/sessie invullen
-- sessienaam/wachtwoord 
+- antwoorden pas zichbaar na invullen DONE
+- antwoorden per groep/sessie invullen DONE
+- sessienaam/wachtwoord DONE
 - random groepen indelen
-- alle onderdelen van bw
+- alle onderdelen van bw DONE
   - meerdere effecten mogelijk? Hoeveel?
 - visueel aantrekkelijk maken
 - resultaten op een goede manier laten zien
 - groepsronde
   - belangrijkste effecten kiezen?
   - ggg
+
+
+
+random code:
+domains = [
+    "Materiële welvaart", "Gezondheid", "Arbeid en vrije tijd", "Wonen",
+    "Sociaal", "Veiligheid", "Milieu", "Welzijn"
+]

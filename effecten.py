@@ -17,10 +17,7 @@ if "domain_inputs" not in st.session_state:
 st.title("Werksessie Brede Welvaart")
 
 
-domains = [
-    "Materiële welvaart", "Gezondheid", "Arbeid en vrije tijd", "Wonen",
-    "Sociaal", "Veiligheid", "Milieu", "Welzijn"
-]
+
 
 # Initialize domain_inputs if not already set
 for domain in domains:
