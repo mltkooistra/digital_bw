@@ -24,7 +24,7 @@ if response.status_code != 200 or not response.json():
 
 # Load response into DataFrame
 sessies = pd.DataFrame(response.json())
-sessie_codes = sessies["acces_code"].tolist()
+sessie_codes = sessies["access_code"].tolist()
 
 # Session state check
 if "authenticated" not in st.session_state:
@@ -37,13 +37,14 @@ if not st.session_state.authenticated:
 
     if code_input:
         if code_input in sessie_codes:
-            sessie_info = sessies[sessies["acces_code"] == code_input].iloc[0]
+            sessie_info = sessies[sessies["access_code"] == code_input].iloc[0]
 
             st.session_state.authenticated = True
-            st.session_state.acces_code = code_input
+            st.session_state.access_code = code_input
             st.session_state.description = sessie_info["description"]
             st.session_state.info = sessie_info["info"]
             st.session_state.link = sessie_info["link"]
+            st.session_state.prov = sessie_info['prov']
 
 
 
@@ -54,35 +55,48 @@ if not st.session_state.authenticated:
             st.stop()
 
 
+if st.session_state.authenticated == True:
+    st.title("Welkom bij de Brede Welvaart Werksessie")
 
-st.title("Welkom bij de Brede Welvaart Werksessie")
+    st.markdown(f"""
+    **De interventie: {st.session_state.description}**
 
-st.markdown(f"""
-De interventie: {st.session_state.description}
+    {st.session_state.info}
 
-{st.session_state.info}
+    """)
+    
+    if st.session_state.link:
+        st.markdown(f"""
+            <div style="background-color: #f0f2f6; padding: 10px; border-radius: 8px; text-align: center;">
+                <a href="{st.session_state.link}" target="_blank" style="text-decoration: none; color: #3366cc; font-weight: bold;">
+                    Meer informatie
+                </a>
+            </div>
+            """, unsafe_allow_html=True)
 
-{st.session_state.link}
 
-""")
+    st.markdown("""
+    **Kies hieronder een gebruikersnaam.**
+    
+    Je hoeft niet je echte naam in te voeren maar schrijf je zelfbedachte gebruikersnaam wel op of maak een foto: als je perongeluk de sessie verlaat heb je deze nodig om verder te gaan
+    """)
+    if "name" not in st.session_state:
+        st.session_state.name = ""
 
-st.markdown("""
-Kies hieronder een gebruikersnaam. 
-""")
-if "name" not in st.session_state:
-    st.session_state.name = ""
+    # Ask for name once
+    if not st.session_state.name:
+        name_input = st.text_input("Gebruikersnaam")
+        if name_input:
+            st.session_state.name = name_input
+            st.success(f"Welkom, {name_input}!")
+            st.rerun()
+    else:
+        st.success(f"Je bent ingelogd als: **{st.session_state.name}**")
+        if st.button("Klik om aan de slag te gaan"):
+            st.switch_page("pages/1_Materiële welvaart.py")
 
-# Ask for name once
-if not st.session_state.name:
-    name_input = st.text_input("Gebruikersnaam")
-    if name_input:
-        st.session_state.name = name_input
-        st.success(f"Welkom, {name_input}!")
-        st.rerun()
-else:
-    st.success(f"Je bent ingelogd als: **{st.session_state.name}**")
-    if st.button("Klik om aan de slag te gaan"):
-        st.switch_page("pages/1_Materiële welvaart.py")
+
+
 
 
 

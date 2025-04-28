@@ -3,8 +3,6 @@
 programma's :
 - supabase
   - https://supabase.com
-  - project API key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRudnRobWdlYWZndnFoemJldGp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ5NzU1NDUsImV4cCI6MjA2MDU1MTU0NX0.DE7K3Uzful-ilzK0uUd0mh9Ck5ggc8toeMqocnpT8uQ
-  - project url:https://tnvthmgeafgvqhzbetjz.supabase.co
 - streamlink
   - https://werksessiebw.streamlit.app/git 
   - app link: 
@@ -20,7 +18,7 @@ python -m streamlit run werksessie.py
 
 probleem: 
 - github repo moet openbaar zijn, dan kan iedereen de api key zien en dus ook de data bekijken (oplossing betaald account?)
-    - misschien opgelost met secrets file (Ewout hiervoor aanhaken)
+    - misschien opgelost met secrets file (Maurtis en Marike aangehaakt)
     - 
 
 
@@ -36,6 +34,8 @@ to do:
 - groepsronde
   - belangrijkste effecten kiezen?
   - ggg
+  - mogelijk maken dat bijvoorbeeld elke groep een ander scenario krijgt 
+  - extra app zodat mensen zelf een sessie aan kunnen maken?
 
 
 

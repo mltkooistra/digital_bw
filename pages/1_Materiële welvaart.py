@@ -1,43 +1,82 @@
 import streamlit as st
 import requests
 import uuid
+import pandas as pd
 
 # -------------- edit per page----------
 domain = "Materiële welvaart"
 domain_index = 1
-
 next_domain = "Gezondheid"
 
-info_text = f'introductie tekst over het effect van {domain}'
-
-# --- Setup ---
-if "submission_id" not in st.session_state:
-    st.session_state.submission_id = str(uuid.uuid4())
-
-#--------NEXT PAGE BUTTON SETUP
-if st.session_state.get("go_to_next_page"):
-    del st.session_state["go_to_next_page"]  # clean up
-    st.switch_page(f"pages/{domain_index + 1}_{next_domain}.py")
-
-#----------page name-----------
+# --- Setup page ---
 st.set_page_config(page_title=f"Effect op {domain}", layout="wide")
 st.title(f"Effect op {domain}")
 
+# --- Initialize required session variables ---
+required_session_vars = ["name", "access_code", "info", "description", "prov"]
+for var in required_session_vars:
+    if var not in st.session_state:
+        st.error(f"Sessiestatus '{var}' ontbreekt. Ga terug naar startpagina.")
+        st.stop()
 
-# --- Access check ---
-if "name" not in st.session_state or not st.session_state.name.strip():
-    st.warning("⚠️ Vul eerst een code en/of gebruikersnaam in op de startpagina.")
-    st.stop()
+if "submission_id" not in st.session_state:
+    st.session_state.submission_id = str(uuid.uuid4())
 
-# --- Session state init ---
 if domain not in st.session_state:
     st.session_state[domain] = {"positive": [], "negative": []}
 
-st.markdown(f"""
- {info_text} 
+# --- Load domain info ---
+info_df = pd.read_excel("domein_info.xlsx")
+info = info_df[info_df['domein'] == domain]
 
-we zijn benieuwd naar de mogelijke effecten van {st.session_state.description} op {domain}
-""")
+info_text = info['introductietekst'].iloc[0]
+questions = info['hulpvragen'].iloc[0].split('-')
+question_list = "\n".join([f"- {q.strip()}" for q in questions if q.strip()])
+link = info['link_GR'].iloc[0] if st.session_state.prov == 'GR' else info['link_DR'].iloc[0]
+
+# --- Load previous answers ---
+response = requests.get(
+    f"{st.secrets['supabase_url']}/rest/v1/submissions?name=eq.{st.session_state.name}&session=eq.{st.session_state.access_code}&domain=eq.{domain}",
+    headers={
+        "apikey": st.secrets["supabase_key"],
+        "Authorization": f"Bearer {st.secrets['supabase_key']}"
+    }
+)
+
+if response.status_code == 200 and response.json():
+    previous_entries = pd.DataFrame(response.json()).drop_duplicates(subset=["name", "score", "text"])
+
+
+    for _, row in previous_entries.iterrows():
+        effect_type = "positive" if row["posneg"] == 1 else "negative"
+        st.session_state[domain][effect_type].append({
+            "text": row["text"],
+            "score": row["score"],
+            "posneg": row["posneg"]
+        })
+
+# --- Info Section ---
+st.markdown(f"""
+<div style="position: absolute; top: 0; right: 0;">
+    <a href="{link}" target="_blank" style="background-color: #f0f2f6; padding: 6px 12px; border-radius: 6px; text-decoration: none; color: #3366cc; font-weight: bold; font-size: 14px;">
+        Meer informatie over {domain}
+    </a>
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown(f"""
+We zijn benieuwd naar de mogelijke effecten van 
+<span title="{st.session_state.info}" style="border-bottom: 1px dotted #999; cursor: help;">
+{st.session_state.description}
+</span> 
+op {domain}.
+
+{info_text}
+
+Denk bijvoorbeeld aan de volgende vragen:
+
+{question_list}
+""", unsafe_allow_html=True)
 
 # --- Form ---
 with st.form("effects_form"):
@@ -82,7 +121,7 @@ with st.form("effects_form"):
     # Submit all effects
     submitted = st.form_submit_button("✅ Effecten opslaan")
 
-# --- Save to Supabase ---
+# --- Save Effects to Supabase ---
 if submitted and not st.session_state.get(f"submitted_{domain_index}"):
     try:
         for effect_type in ["positive", "negative"]:
@@ -105,10 +144,16 @@ if submitted and not st.session_state.get(f"submitted_{domain_index}"):
                             "session": st.session_state.access_code
                         }
                     )
-        st.success("Opgeslagen")
+        st.success("Opgeslagen!")
         st.session_state[f"submitted_{domain_index}"] = True
     except Exception as e:
         st.error(f"❌ Fout bij opslaan: {e}")
 
+# --- Next Page Button ---
 if st.session_state.get(f"submitted_{domain_index}"):
-    st.button("➡️ Ga door naar het volgende domein", on_click=lambda: st.session_state.update({"go_to_next_page": True}))
+    if st.button("➡️ Ga door naar het volgende domein"):
+        st.session_state.go_to_next_page = True
+
+if st.session_state.get("go_to_next_page"):
+    del st.session_state["go_to_next_page"]
+    st.switch_page(f"pages/{domain_index + 1}_{next_domain}.py")

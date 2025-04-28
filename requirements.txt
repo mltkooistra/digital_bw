@@ -5,3 +5,5 @@ wordcloud
 requests
 plotly
 supabase
+openpyxl
+collections

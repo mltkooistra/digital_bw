@@ -4,10 +4,34 @@ import requests
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
+from collections import defaultdict
+import uuid
+
+# --- Setup ---
+if "submission_id" not in st.session_state:
+    st.session_state.submission_id = str(uuid.uuid4())
 
 # --- Page setup ---
 st.set_page_config(page_title="Resultaten", layout="wide")
 st.title("Resultaten van de sessie")
+
+# --- Initialize required session variables ---
+required_session_vars = ["name", "access_code", "info", "description", "prov"]
+for var in required_session_vars:
+    if var not in st.session_state:
+        st.error(f"Sessiestatus '{var}' ontbreekt. Ga terug naar startpagina.")
+        st.stop()
+
+if "submission_id" not in st.session_state:
+    st.session_state.submission_id = str(uuid.uuid4())
+
+
+
+
+# --- Access check ---
+if "name" not in st.session_state or not st.session_state.name.strip():
+    st.warning("⚠️ Vul eerst een code en/of gebruikersnaam in op de startpagina.")
+    st.stop()
 
 # --- Check all domains ---
 ordered_domains = {
@@ -41,7 +65,7 @@ if response.status_code != 200 or not response.json():
     st.stop()
 
 # ✅ Parse data into DataFrame
-df = pd.DataFrame(response.json()).drop_duplicates(subset=["name", "submission_id", "domain", "score", "text"])
+df = pd.DataFrame(response.json()).drop_duplicates(subset=["name", "domain", "score", "text"])
 
 # ✅ Filter only this session's data
 df = df[df["session"] == st.session_state.access_code]
@@ -58,7 +82,7 @@ domains = [
 user_df = df[df["name"] == st.session_state.name]
 
 # --- General metrics ---
-st.subheader(f"Gemiddelde score voor de {st.session_state.description}")
+st.subheader(f"Gemiddelde score voor {st.session_state.description}")
 st.metric("Totaal score", f"{df['signed_score'].mean():.2f}")
 st.metric("Jouw score", f"{user_df['signed_score'].mean():.2f}" if not user_df.empty else "–")
 
@@ -113,3 +137,60 @@ if not filtered_text_df.empty:
     st.pyplot(fig)
 else:
     st.info("Geen tekst beschikbaar voor dit domein.")
+
+
+# ---- effects voting------
+
+
+# Helper: function to find similar effects
+def group_similar_effects(df, min_common_words=5):
+    grouped = []
+    used_indices = set()
+
+    for i, row_i in df.iterrows():
+        if i in used_indices:
+            continue
+        group = [i]
+        words_i = set(str(row_i["text"]).lower().split())
+
+        for j, row_j in df.iterrows():
+            if j <= i or j in used_indices:
+                continue
+            if row_i["domain"] != row_j["domain"]:
+                continue
+            words_j = set(str(row_j["text"]).lower().split())
+            common_words = words_i.intersection(words_j)
+            if len(common_words) >= min_common_words:
+                group.append(j)
+                used_indices.add(j)
+
+        grouped.append(group)
+    return grouped
+st.subheader("🗳️ Stem op effecten!")
+
+# Group similar effects
+grouped_indices = group_similar_effects(df)
+
+# Create a dict: group ID -> texts and domain
+effect_groups = []
+for group in grouped_indices:
+    texts = df.loc[group, "text"].tolist()
+    domain = df.loc[group[0], "domain"]
+    combined_text = " / ".join(texts)  # Join similar effects
+    effect_groups.append({"domain": domain, "text": combined_text, "votes": 0})
+
+# State to store votes
+if "votes" not in st.session_state:
+    st.session_state.votes = defaultdict(int)
+
+# UI
+for idx, effect in enumerate(effect_groups):
+    st.markdown(f"**{effect['domain']}**: {effect['text']}")
+    vote_button = st.button(f"👍 Stem op deze ({st.session_state.votes[idx]} stemmen)", key=f"vote_{idx}")
+    if vote_button:
+        st.session_state.votes[idx] += 1
+
+# Show voting results
+st.subheader("📊 Tussenstand:")
+for idx, effect in enumerate(effect_groups):
+    st.markdown(f"- **{effect['domain']}**: {effect['text']} — {st.session_state.votes[idx]} stemmen")

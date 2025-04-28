@@ -1,6 +1,8 @@
 import streamlit as st
 import requests
 import uuid
+import pandas as pd
+
 
 # -------------- edit per page----------
 domain = "Gezondheid"
@@ -8,7 +10,27 @@ domain_index = 2
 
 next_domain = "Arbeid en vrije tijd"
 
-info_text = f'introductie tekst over {domain}'
+#---get domain info
+
+#---get domain info
+
+info = pd.read_excel('domein_info.xlsx')
+
+info = info[info['domein'] == domain]
+info_text = info['introductietekst'].iloc[0]
+questions = info['hulpvragen'].iloc[0].split('-')
+question_list = "\n".join([f"- {question.strip()}" for question in questions if question.strip()])
+
+link = info['link_GR'].iloc[0] if st.session_state.prov == 'GR' else info['link_DR'].iloc[0]
+
+
+
+
+
+
+
+
+
 
 # --- Setup ---
 if "submission_id" not in st.session_state:
@@ -33,9 +55,34 @@ if "name" not in st.session_state or not st.session_state.name.strip():
 if domain not in st.session_state:
     st.session_state[domain] = {"positive": [], "negative": []}
 
+
+#---- information section
+#more info button with link 
+
 st.markdown(f"""
- {info_text}
-""")
+<div style="position: absolute; top: 0; right: 0;">
+    <a href="{link}" target="_blank" style="background-color: #f0f2f6; padding: 6px 12px; border-radius: 6px; text-decoration: none; color: #3366cc; font-weight: bold; font-size: 14px;">
+        Meer informatie over {domain}
+    </a>
+</div>
+""", unsafe_allow_html=True)
+
+# tekst
+st.markdown(f"""
+We zijn benieuwd naar de mogelijke effecten van 
+<span title="{st.session_state.info}" style="border-bottom: 1px dotted #999; cursor: help;">
+{st.session_state.description}
+</span> 
+op {domain}.
+
+{info_text}
+
+Denk bijvoorbeeld aan de volgende vragen:
+
+{question_list}
+""", unsafe_allow_html=True)
+
+
 
 # --- Form ---
 with st.form("effects_form"):
