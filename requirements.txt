@@ -6,4 +6,3 @@ requests
 plotly
 supabase
 openpyxl
-collections

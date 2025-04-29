@@ -24,6 +24,25 @@ if "submission_id" not in st.session_state:
 
 if domain not in st.session_state:
     st.session_state[domain] = {"positive": [], "negative": []}
+    # --- Load previous answers ONLY on first run ---
+    response = requests.get(
+        f"{st.secrets['supabase_url']}/rest/v1/submissions?name=eq.{st.session_state.name}&session=eq.{st.session_state.access_code}&domain=eq.{domain}",
+        headers={
+            "apikey": st.secrets["supabase_key"],
+            "Authorization": f"Bearer {st.secrets['supabase_key']}"
+        }
+    )
+
+    if response.status_code == 200 and response.json():
+        previous_entries = pd.DataFrame(response.json()).drop_duplicates(subset=["name", "score", "text"])
+
+        for _, row in previous_entries.iterrows():
+            effect_type = "positive" if row["posneg"] == 1 else "negative"
+            st.session_state[domain][effect_type].append({
+                "text": row["text"],
+                "score": row["score"],
+                "posneg": row["posneg"]
+            })
 
 # --- Load domain info ---
 info_df = pd.read_excel("domein_info.xlsx")
@@ -33,27 +52,6 @@ info_text = info['introductietekst'].iloc[0]
 questions = info['hulpvragen'].iloc[0].split('-')
 question_list = "\n".join([f"- {q.strip()}" for q in questions if q.strip()])
 link = info['link_GR'].iloc[0] if st.session_state.prov == 'GR' else info['link_DR'].iloc[0]
-
-# --- Load previous answers ---
-response = requests.get(
-    f"{st.secrets['supabase_url']}/rest/v1/submissions?name=eq.{st.session_state.name}&session=eq.{st.session_state.access_code}&domain=eq.{domain}",
-    headers={
-        "apikey": st.secrets["supabase_key"],
-        "Authorization": f"Bearer {st.secrets['supabase_key']}"
-    }
-)
-
-if response.status_code == 200 and response.json():
-    previous_entries = pd.DataFrame(response.json()).drop_duplicates(subset=["name", "score", "text"])
-
-
-    for _, row in previous_entries.iterrows():
-        effect_type = "positive" if row["posneg"] == 1 else "negative"
-        st.session_state[domain][effect_type].append({
-            "text": row["text"],
-            "score": row["score"],
-            "posneg": row["posneg"]
-        })
 
 # --- Info Section ---
 st.markdown(f"""
@@ -78,6 +76,16 @@ Denk bijvoorbeeld aan de volgende vragen:
 {question_list}
 """, unsafe_allow_html=True)
 
+
+# --- Effect Removal Handler ---
+for effect_type in ["positive", "negative"]:
+    for i in range(len(st.session_state[domain][effect_type])):
+        delete_key = f"delete_{effect_type}_{i}"
+        if st.session_state.get(delete_key):
+            del st.session_state[domain][effect_type][i]
+            st.session_state.pop(delete_key)
+            st.rerun()
+
 # --- Form ---
 with st.form("effects_form"):
     col_pos, col_neg = st.columns(2)
@@ -99,6 +107,7 @@ with st.form("effects_form"):
                 value=entry["score"],
                 key=score_key
             )
+            st.checkbox("🗑️ Verwijder", key=f"delete_positive_{i}")
 
     with col_neg:
         st.header("❌ Negatieve effecten")
@@ -117,6 +126,7 @@ with st.form("effects_form"):
                 value=entry["score"],
                 key=score_key
             )
+            st.checkbox("🗑️ Verwijder", key=f"delete_negative_{i}")
 
     # Submit all effects
     submitted = st.form_submit_button("✅ Effecten opslaan")
