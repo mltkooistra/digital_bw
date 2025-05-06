@@ -126,7 +126,7 @@ with st.form("effects_form"):
                 value=entry["score"],
                 key=score_key
             )
-            st.checkbox("🗑️ Verwijder", key=f"delete_negative_{i}")
+            st.checkbox(f"🗑️ Verwijder effect {i}", key=f"delete_negative_{i}")
 
     # Submit all effects
     submitted = st.form_submit_button("✅ Effecten opslaan")
