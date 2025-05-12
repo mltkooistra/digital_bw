@@ -19,8 +19,8 @@ st.title("📋 Verdiepende feedback op top-effecten")
 vote_response = requests.get(
     f"{st.secrets['supabase_url']}/rest/v1/effect_votes?select=*",
     headers={
-        "apikey": st.secrets["supabase_anon_key"],
-        "Authorization": f"Bearer {st.secrets['supabase_anon_key']}"
+        "apikey": st.secrets["supabase_key"],
+        "Authorization": f"Bearer {st.secrets['supabase_key']}"
     }
 )
 
