@@ -14,68 +14,40 @@ import requests
 st.set_page_config(page_title="Verdiepende feedback", layout="wide")
 st.title("📋 Verdiepende feedback op top-effecten")
 
-# Load effect votes
+
+# Load effect votes from Supabase
 vote_response = requests.get(
     f"{st.secrets['supabase_url']}/rest/v1/effect_votes?select=*",
     headers={
-        "apikey": st.secrets["supabase_key"],
-        "Authorization": f"Bearer {st.secrets['supabase_key']}"
+        "apikey": st.secrets["supabase_anon_key"],
+        "Authorization": f"Bearer {st.secrets['supabase_anon_key']}"
     }
 )
+
 if vote_response.status_code != 200:
     st.error("Fout bij laden van stemgegevens.")
     st.stop()
 
 vote_data = pd.DataFrame(vote_response.json())
 
-# Load effect text groups (reuse your group_similar_effects() function)
-# Here you assume `df` is already available (if not, you'll need to reload submission data too)
-from datetime import datetime
-
-def group_similar_effects(df, min_common_words=5):
-    grouped = []
-    used_indices = set()
-    for i, row_i in df.iterrows():
-        if i in used_indices:
-            continue
-        group = [i]
-        words_i = set(str(row_i["text"]).lower().split())
-        for j, row_j in df.iterrows():
-            if j <= i or j in used_indices:
-                continue
-            if row_i["domain"] != row_j["domain"]:
-                continue
-            words_j = set(str(row_j["text"]).lower().split())
-            common_words = words_i.intersection(words_j)
-            if len(common_words) >= min_common_words:
-                group.append(j)
-                used_indices.add(j)
-        grouped.append(group)
-    return grouped
-
-# Re-fetch submission data
-submission_response = requests.get(
-    f"{st.secrets['supabase_url']}/rest/v1/submissions?select=*&order=timestamp.desc&limit=1000",
-    headers={
-        "apikey": st.secrets["supabase_key"],
-        "Authorization": f"Bearer {st.secrets['supabase_key']}"
-    }
-)
-if submission_response.status_code != 200:
-    st.error("Fout bij laden van inzendingen.")
+# Make sure vote_data is not empty
+if vote_data.empty:
+    st.warning("Geen stemgegevens gevonden.")
     st.stop()
 
-df = pd.DataFrame(submission_response.json())
-df = df[df["session"] == st.session_state.access_code]
-
-# Group effects
-grouped = group_similar_effects(df)
+# Group and summarize
 effects = []
-for idx, group in enumerate(grouped):
-    texts = df.loc[group, "text"].tolist()
-    domain = df.loc[group[0], "domain"]
-    group_id = f"{st.session_state.access_code}_{idx}"
-    votes = vote_data[vote_data["group_id"] == group_id]["votes"].sum()
+grouped = vote_data.groupby("group_id")
+
+for idx, (group_id, group_df) in enumerate(grouped):
+    # Get corresponding rows in your main dataset (df)
+    try:
+        texts = df[df["group_id"] == group_id]["text"].tolist()
+        domain = df[df["group_id"] == group_id]["domain"].iloc[0]
+    except IndexError:
+        continue  # skip if no matching group
+
+    votes = group_df["votes"].sum()
     effects.append({
         "group_id": group_id,
         "text": " / ".join(texts),
@@ -83,7 +55,7 @@ for idx, group in enumerate(grouped):
         "votes": votes
     })
 
-# Sort effects
+# Sort results
 sorted_effects = sorted(effects, key=lambda e: e["votes"], reverse=True)
 top_positive = sorted_effects[:5]
 top_negative = sorted(effects, key=lambda e: e["votes"])[:5]
