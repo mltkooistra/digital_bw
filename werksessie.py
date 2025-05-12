@@ -45,6 +45,7 @@ if not st.session_state.authenticated:
             st.session_state.info = sessie_info["info"]
             st.session_state.link = sessie_info["link"]
             st.session_state.prov = sessie_info['prov']
+            st.session_state.n_effects = sessie_info['n_effects']
 
 
 

@@ -89,9 +89,10 @@ for group_id, group_df in grouped:
     })
 
 # --- Top-5 per richting ---
+n_effects = st.session_state.n_effects
 sorted_effects = sorted(effects, key=lambda e: e["votes"], reverse=True)
-top_positive = sorted_effects[:5]
-top_negative = sorted(effects, key=lambda e: e["votes"])[:5]
+top_positive = sorted_effects[:n_effects]
+top_negative = sorted(effects, key=lambda e: e["votes"])[:n_effects]
 
 # --- UI voor feedback ---
 def render_feedback_block(effect, idx, section):
@@ -101,11 +102,11 @@ def render_feedback_block(effect, idx, section):
     st.text_input("3. Zijn er aanpassingen aan de interventie mogelijk of nodig?", key=f"{section}_{idx}_q3")
     st.markdown("---")
 
-st.header("🔼 Top 5 Positieve Effecten")
+st.header(f"Top {n_effects} Positieve Effecten")
 for i, effect in enumerate(top_positive):
     render_feedback_block(effect, i, "pos")
 
-st.header("🔽 Top 5 Negatieve Effecten")
+st.header(f"Top {n_effects} Negatieve Effecten")
 for i, effect in enumerate(top_negative):
     render_feedback_block(effect, i, "neg")
 
