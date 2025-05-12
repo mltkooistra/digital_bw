@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 
 st.set_page_config(page_title="Verdiepende feedback", layout="wide")
-st.title("📋 Verdiepende feedback op top-effecten")
+st.title("Verdiepingsopdracht")
 
 # --- Ophalen van inzendingen uit Supabase ---
 response = requests.get(
@@ -89,14 +89,18 @@ for group_id, group_df in grouped:
     })
 
 # --- Top-5 per richting ---
-n_effects = st.session_state.n_effects
+# --- Top-N per richting ---
+n_effects = st.session_state.get("n_effects", 3)
 sorted_effects = sorted(effects, key=lambda e: e["votes"], reverse=True)
 top_positive = sorted_effects[:n_effects]
 top_negative = sorted(effects, key=lambda e: e["votes"])[:n_effects]
 
 # --- UI voor feedback ---
 def render_feedback_block(effect, idx, section):
-    st.markdown(f"**{section} #{idx+1}: {effect['text']}**  _(stemmen: {effect['votes']})_")
+    st.markdown(f"### {section.capitalize()} #{idx + 1}")
+    st.write(f"_Stemmen: {effect['votes']}_")
+    st.markdown(f"**Effecttekst:** {effect['text']}")
+    
     st.text_input("1. Op welke groepen is het effect het grootst?", key=f"{section}_{idx}_q1")
     st.text_input("2. Op welke gebieden is het effect het grootst?", key=f"{section}_{idx}_q2")
     st.text_input("3. Zijn er aanpassingen aan de interventie mogelijk of nodig?", key=f"{section}_{idx}_q3")
