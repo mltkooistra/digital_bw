@@ -1,0 +1,46 @@
+
+
+programma's :
+- supabase
+  - https://supabase.com
+- streamlink
+  - https://werksessiebw.streamlit.app/git 
+  - app link: 
+- gitguardian
+  - om te datalek te checken
+
+
+
+run in terminal:
+python -m streamlit run werksessie.py
+
+
+
+probleem: 
+- github repo moet openbaar zijn, dan kan iedereen de api key zien en dus ook de data bekijken (oplossing betaald account?)
+    - misschien opgelost met secrets file (Maurtis en Marike aangehaakt)
+    - 
+
+
+to do:
+- antwoorden pas zichbaar na invullen DONE
+- antwoorden per groep/sessie invullen DONE
+- sessienaam/wachtwoord DONE
+- random groepen indelen
+- alle onderdelen van bw DONE
+  - meerdere effecten mogelijk? Hoeveel?
+- visueel aantrekkelijk maken
+- resultaten op een goede manier laten zien
+- groepsronde
+  - belangrijkste effecten kiezen?
+  - ggg
+  - mogelijk maken dat bijvoorbeeld elke groep een ander scenario krijgt 
+  - extra app zodat mensen zelf een sessie aan kunnen maken?
+
+
+
+random code:
+domains = [
+    "Materiële welvaart", "Gezondheid", "Arbeid en vrije tijd", "Wonen",
+    "Sociaal", "Veiligheid", "Milieu", "Welzijn"
+]
