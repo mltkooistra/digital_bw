@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from collections import defaultdict
 import uuid
+from nltk.corpus import stopwords
+
 
 # --- Setup ---
 if "submission_id" not in st.session_state:
@@ -122,14 +124,17 @@ with col2:
 # --- Word cloud section ---
 st.subheader("🔤 Word cloud")
 
+dutch_stopwords = set(stopwords.words('dutch'))
+
 domain_options = ["Alle"] + sorted(df["domain"].dropna().unique().tolist())
 selected_domain = st.selectbox("Kies een domein voor de word cloud:", domain_options)
 
 filtered_text_df = df if selected_domain == "Alle" else df[df["domain"] == selected_domain]
 
+
 if not filtered_text_df.empty:
     all_text = " ".join(filtered_text_df["text"].astype(str))
-    wordcloud = WordCloud(width=800, height=400, background_color='white').generate(all_text)
+    wordcloud = WordCloud(width=600, height=300, background_color='white', colormap='coolwarm', stopwords=dutch_stopwords).generate(all_text)
 
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.imshow(wordcloud, interpolation='bilinear')

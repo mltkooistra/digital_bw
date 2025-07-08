@@ -37,6 +37,10 @@ to do:
   - mogelijk maken dat bijvoorbeeld elke groep een ander scenario krijgt 
   - extra app zodat mensen zelf een sessie aan kunnen maken?
 
+To do 120525
+- stemmen overzichtelijk maken
+- uitleg spidercharts
+- stemmen aanpassen mogelijk?
 
 
 random code:

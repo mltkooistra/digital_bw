@@ -6,3 +6,5 @@ requests
 plotly
 supabase
 openpyxl
+streamlit_extras
+nltk

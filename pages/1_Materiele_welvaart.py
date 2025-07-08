@@ -48,6 +48,7 @@ if domain not in st.session_state:
 info_df = pd.read_excel("domein_info.xlsx")
 info = info_df[info_df['domein'] == domain]
 
+
 info_text = info['introductietekst'].iloc[0]
 questions = info['hulpvragen'].iloc[0].split('-')
 question_list = "\n".join([f"- {q.strip()}" for q in questions if q.strip()])
@@ -61,6 +62,8 @@ st.markdown(f"""
     </a>
 </div>
 """, unsafe_allow_html=True)
+
+
 
 st.markdown(f"""
 We zijn benieuwd naar de mogelijke effecten van 

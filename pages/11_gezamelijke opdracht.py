@@ -5,115 +5,105 @@ import requests
 st.set_page_config(page_title="Verdiepende feedback", layout="wide")
 st.title("Verdiepingsopdracht")
 
-# --- Ophalen van inzendingen uit Supabase ---
-response = requests.get(
-    f"{st.secrets['supabase_url']}/rest/v1/submissions?select=*",
-    headers={
-        "apikey": st.secrets["supabase_key"],
-        "Authorization": f"Bearer {st.secrets['supabase_key']}"
-    }
-)
-
-if response.status_code != 200 or not response.json():
-    st.error("Fout bij laden van inzendingen.")
+# --- Check gebruiker ---
+if "name" not in st.session_state or "access_code" not in st.session_state:
+    st.error("Naam of sessiecode ontbreekt. Ga terug naar de startpagina.")
     st.stop()
 
-df = pd.DataFrame(response.json()).drop_duplicates(subset=["name", "domain", "score", "text"])
+# --- Group selection from session ---
+selected_group = st.session_state.get("selected_group", "1")
+group_name = f"Groep {selected_group}"
+st.info(f"Je vult feedback in namens **{group_name}**.")
 
-# Groep-ID opnieuw aanmaken zoals bij stemming
-def group_similar_effects(df, min_common_words=5):
-    grouped = []
-    used_indices = set()
-
-    for i, row_i in df.iterrows():
-        if i in used_indices:
-            continue
-        group = [i]
-        words_i = set(str(row_i["text"]).lower().split())
-
-        for j, row_j in df.iterrows():
-            if j <= i or j in used_indices or row_i["domain"] != row_j["domain"]:
-                continue
-            words_j = set(str(row_j["text"]).lower().split())
-            if len(words_i.intersection(words_j)) >= min_common_words:
-                group.append(j)
-                used_indices.add(j)
-
-        grouped.append(group)
-    return grouped
-
-grouped_indices = group_similar_effects(df)
-df["group_id"] = None
-
-for idx, group in enumerate(grouped_indices):
-    group_id = f"{df.iloc[0]['session']}_{idx}" if 'session' in df.columns else f"group_{idx}"
-    df.loc[group, "group_id"] = group_id
-
-# --- Ophalen van stemmen uit Supabase ---
-vote_response = requests.get(
+# --- Stemmen ophalen ---
+r_votes = requests.get(
     f"{st.secrets['supabase_url']}/rest/v1/effect_votes?select=*",
     headers={
         "apikey": st.secrets["supabase_key"],
         "Authorization": f"Bearer {st.secrets['supabase_key']}"
     }
 )
+df_votes = pd.DataFrame(r_votes.json()) if r_votes.status_code == 200 else pd.DataFrame()
 
-if vote_response.status_code != 200:
-    st.error("Fout bij laden van stemgegevens.")
+# --- Filter op sessie ---
+session_code = st.session_state.access_code
+df_votes = df_votes[df_votes["session"] == session_code]
+
+# --- Controle ---
+if df_votes.empty or "text" not in df_votes.columns:
+    st.warning("Geen stemgegevens met teksten beschikbaar voor deze sessie.")
     st.stop()
 
-vote_data = pd.DataFrame(vote_response.json())
+# --- Stemmen samenvoegen per unieke tekst ---
+vote_sums = df_votes.groupby("text")["votes"].sum().reset_index()
+vote_sums = vote_sums.sort_values("votes", ascending=False)
 
-if vote_data.empty:
-    st.warning("Geen stemgegevens gevonden.")
-    st.stop()
+# --- Top & bottom N effecten ---
+n = st.session_state.get("n_effects", 3)
+top_pos = vote_sums.head(n)
+top_neg = vote_sums.tail(n)
 
-# --- Groeperen en samenvatten ---
-effects = []
-grouped = vote_data.groupby("group_id")
+# --- Feedback UI ---
+def feedback_ui(effect, idx, label):
+    st.markdown(f"### {effect['text']}")
+    st.text_input("1. Op welke groepen is het effect het grootst?", key=f"{label}_{idx}_q1")
+    st.text_input("2. Op welke gebied(en) is het effect het grootst?", key=f"{label}_{idx}_q2")
 
-for group_id, group_df in grouped:
-    matching_rows = df[df["group_id"] == group_id]
-    if matching_rows.empty:
-        continue
+    st.selectbox(
+        "Hoe ver reikt het effect?",
+        options=[
+            "-- geen antwoord --",
+            "de buurt",
+            "wijk/dorp",
+            "stad of gemeente",
+            "provincie",
+            "landelijk",
+            "internationaal"
+        ],
+        index=0,
+        key=f"{label}_{idx}_q_reikwijdte"
+    )
 
-    texts = matching_rows["text"].tolist()
-    domain = matching_rows["domain"].iloc[0]
-    votes = group_df["votes"].sum()
-
-    effects.append({
-        "group_id": group_id,
-        "text": " / ".join(texts),
-        "domain": domain,
-        "votes": votes
-    })
-
-# --- Top-5 per richting ---
-# --- Top-N per richting ---
-n_effects = st.session_state.get("n_effects", 3)
-sorted_effects = sorted(effects, key=lambda e: e["votes"], reverse=True)
-top_positive = sorted_effects[:n_effects]
-top_negative = sorted(effects, key=lambda e: e["votes"])[:n_effects]
-
-# --- UI voor feedback ---
-def render_feedback_block(effect, idx, section):
-    st.markdown(f"### {section.capitalize()} #{idx + 1}")
-    st.write(f"_Stemmen: {effect['votes']}_")
-    st.markdown(f"**Effecttekst:** {effect['text']}")
-    
-    st.text_input("1. Op welke groepen is het effect het grootst?", key=f"{section}_{idx}_q1")
-    st.text_input("2. Op welke gebieden is het effect het grootst?", key=f"{section}_{idx}_q2")
-    st.text_input("3. Zijn er aanpassingen aan de interventie mogelijk of nodig?", key=f"{section}_{idx}_q3")
+    st.text_input("3. Zijn er aanpassingen aan de interventie mogelijk of nodig?", key=f"{label}_{idx}_q3")
     st.markdown("---")
 
-st.header(f"Top {n_effects} Positieve Effecten")
-for i, effect in enumerate(top_positive):
-    render_feedback_block(effect, i, "pos")
+# --- Weergave Positief ---
+st.header(f"Top {n} Positieve Effecten")
+if top_pos.empty:
+    st.info("Geen positieve effecten gevonden.")
+else:
+    for i, row in top_pos.iterrows():
+        feedback_ui(row, i, "Pos")
 
-st.header(f"Top {n_effects} Negatieve Effecten")
-for i, effect in enumerate(top_negative):
-    render_feedback_block(effect, i, "neg")
+# --- Weergave Negatief ---
+st.header(f"Top {n} Negatieve Effecten")
+if top_neg.empty:
+    st.info("Geen negatieve effecten gevonden.")
+else:
+    for i, row in top_neg.iterrows():
+        feedback_ui(row, i, "Neg")
 
-if st.button("✅ Versturenk"):
-    # Hier kun je feedback opslaan naar Supabase als je dat wil uitbreiden
-    st.success("Opgeslagen")
+# --- Versturen ---
+if st.button("✅ Versturen"):
+    for label, group in [("Pos", top_pos), ("Neg", top_neg)]:
+        for idx, row in group.iterrows():
+            requests.post(
+                f"{st.secrets['supabase_url']}/rest/v1/group_results?on_conflict=group,text",
+                headers={
+                    "apikey": st.secrets["supabase_key"],
+                    "Authorization": f"Bearer {st.secrets['supabase_key']}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=representation"
+                },
+                json={
+                    "session": session_code,
+                    "group": group_name,
+                    "text": row["text"],
+                    "feedback_group_impact": st.session_state.get(f"{label}_{idx}_q1", ""),
+                    "feedback_place_impact": st.session_state.get(f"{label}_{idx}_q2", ""),
+                    "feedback_distance": st.session_state.get(f"{label}_{idx}_q_reikwijdte", ""),
+                    "feedback_improvements": st.session_state.get(f"{label}_{idx}_q3", "")
+                }
+            )
+    st.success("Feedback opgeslagen.")
+

@@ -2,6 +2,9 @@ import streamlit as st
 import requests
 from supabase import create_client, Client
 import pandas as pd
+from streamlit_extras.switch_page_button import switch_page
+
+
 
 st.set_page_config(page_title="Brede Welvaart Werksessie", layout="centered")
 
@@ -46,6 +49,7 @@ if not st.session_state.authenticated:
             st.session_state.link = sessie_info["link"]
             st.session_state.prov = sessie_info['prov']
             st.session_state.n_effects = sessie_info['n_effects']
+            st.session_state.n_groups = sessie_info['n_groups']
 
 
 
@@ -94,7 +98,7 @@ if st.session_state.authenticated == True:
     else:
         st.success(f"Je bent ingelogd als: **{st.session_state.name}**")
         if st.button("Klik om aan de slag te gaan"):
-            st.switch_page("pages/1_Materiële welvaart.py")
+            st.switch_page("pages/1_Materiele_welvaart.py")
 
 
 
