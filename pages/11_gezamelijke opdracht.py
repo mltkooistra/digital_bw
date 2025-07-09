@@ -2,12 +2,23 @@ import streamlit as st
 import pandas as pd
 import requests
 
+
 st.set_page_config(page_title="Verdiepende feedback", layout="wide")
 st.title("Verdiepingsopdracht")
 
 # --- Check gebruiker ---
 if "name" not in st.session_state or "access_code" not in st.session_state:
     st.error("Naam of sessiecode ontbreekt. Ga terug naar de startpagina.")
+    st.stop()
+
+# Optional: redirect if no session state set
+if "group_question_filler" not in st.session_state:
+    st.error("Deze pagina is niet direct toegankelijk.")
+    st.stop()
+
+# If this user is not the one filling in the group questions
+if st.session_state["group_question_filler"] == False:
+    st.info("⏳ Wacht tot je groepslid de groepsvragen heeft ingevuld. ")
     st.stop()
 
 # --- Group selection from session ---
@@ -50,7 +61,7 @@ def feedback_ui(effect, idx, label):
     st.text_input("2. Op welke gebied(en) is het effect het grootst?", key=f"{label}_{idx}_q2")
 
     st.selectbox(
-        "Hoe ver reikt het effect?",
+        "3. Hoe ver reikt het effect?",
         options=[
             "-- geen antwoord --",
             "de buurt",
@@ -64,7 +75,17 @@ def feedback_ui(effect, idx, label):
         key=f"{label}_{idx}_q_reikwijdte"
     )
 
-    st.text_input("3. Zijn er aanpassingen aan de interventie mogelijk of nodig?", key=f"{label}_{idx}_q3")
+    st.slider(
+        "4. Wanneer verwacht je dat het effect zichtbaar wordt?",
+        min_value=0,
+        max_value=50,
+        value=0,
+        step=1,
+        format="%d jaar",
+        help="0 = meteen vanaf de start, 50 = pas over 50 jaar of later",
+        key=f"{label}_{idx}_q_start_year"
+    )
+    st.text_input("5. Zijn er aanpassingen aan de interventie mogelijk of nodig?", key=f"{label}_{idx}_q3")
     st.markdown("---")
 
 # --- Weergave Positief ---
@@ -102,8 +123,11 @@ if st.button("✅ Versturen"):
                     "feedback_group_impact": st.session_state.get(f"{label}_{idx}_q1", ""),
                     "feedback_place_impact": st.session_state.get(f"{label}_{idx}_q2", ""),
                     "feedback_distance": st.session_state.get(f"{label}_{idx}_q_reikwijdte", ""),
-                    "feedback_improvements": st.session_state.get(f"{label}_{idx}_q3", "")
+                    "feedback_improvements": st.session_state.get(f"{label}_{idx}_q3", ""),
+                    "feedback_start": st.session_state.get(f"{label}_{idx}_q_start_year")
                 }
             )
     st.success("Feedback opgeslagen.")
+    st.session_state["group_answers_submitted"] = True
+    st.switch_page("pages/12_rapport.py")  # Or navigate as needed
 

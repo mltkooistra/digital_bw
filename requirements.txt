@@ -8,3 +8,7 @@ supabase
 openpyxl
 streamlit_extras
 nltk
+docx
+fpdf2 
+reportlab
+datetime
