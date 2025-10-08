@@ -7,6 +7,43 @@ import plotly.graph_objects as go
 from collections import defaultdict
 import uuid
 from nltk.corpus import stopwords
+#--- stopwords setup ---
+
+import os
+from pathlib import Path
+
+import streamlit as st
+import nltk
+
+# Put NLTK data inside the project so it's always writable
+NLTK_DIR = Path(__file__).resolve().parents[1] / ".nltk_data"
+NLTK_DIR.mkdir(exist_ok=True)
+if str(NLTK_DIR) not in nltk.data.path:
+    nltk.data.path.insert(0, str(NLTK_DIR))
+
+@st.cache_resource
+def ensure_dutch_stopwords():
+    # Make sure 'stopwords' corpus exists; download to our local folder if missing
+    try:
+        nltk.data.find("corpora/stopwords")
+    except LookupError:
+        nltk.download("stopwords", download_dir=str(NLK_DIR := NLTK_DIR))
+        # Ensure the just-downloaded dir is on the search path
+        if str(NLTK_DIR) not in nltk.data.path:
+            nltk.data.path.insert(0, str(NLTK_DIR))
+
+    from nltk.corpus import stopwords
+    try:
+        return set(stopwords.words("dutch"))
+    except OSError:
+        # Fallback (offline/no download): a minimal built-in set so the app keeps working
+        return {
+            "de","het","een","en","of","maar","want","dat","die","dit","er","je","jij",
+            "u","we","wij","ze","zij","ik","hij","het","in","op","aan","met","voor",
+            "van","naar","bij","als","dan","niet","geen","wel","ook","om","te","tot",
+        }
+
+dutch_stopwords = ensure_dutch_stopwords()
 
 
 # --- Setup ---
@@ -14,7 +51,7 @@ if "submission_id" not in st.session_state:
     st.session_state.submission_id = str(uuid.uuid4())
 
 # --- Page setup ---
-st.set_page_config(page_title="Resultaten", layout="wide")
+
 st.title("Resultaten van de sessie")
 
 # --- Initialize required session variables ---
@@ -35,39 +72,77 @@ if "name" not in st.session_state or not st.session_state.name.strip():
     st.warning("⚠️ Vul eerst een code en/of gebruikersnaam in op de startpagina.")
     st.stop()
 
-# --- Check all domains ---
+# --- Check all domains (DB-based, survives refresh) ---
+
 ordered_domains = {
     1: "Materiële welvaart", 2: "Gezondheid", 3: "Arbeid en vrije tijd",
     4: "Wonen", 5: "Sociaal", 6: "Veiligheid", 7: "Milieu", 8: "Welzijn"
 }
+required_domains = list(ordered_domains.values())
 
-missing = [
-    f"{name}" for i, name in ordered_domains.items()
-    if not st.session_state.get(f"submitted_{i}")
-]
+# If you want to require a *non-empty* text (not just a placeholder " "), set True:
+REQUIRE_NON_EMPTY = False
 
-if missing:
-    st.warning(
-        "🔒 Je moet eerst alle domeinen invullen voordat je de resultaten kunt bekijken.\n\n"
-        f"Nog niet ingevuld: {', '.join(missing)}"
-    )
-    st.stop()
+# --- Fetch data from Supabase (robust) ---
 
-# --- Fetch data from Supabase ---
-response = requests.get(
-    f"{st.secrets['supabase_url']}/rest/v1/submissions?select=*&order=timestamp.desc&limit=1000",
-    headers={
-        "apikey": st.secrets["supabase_key"],
-        "Authorization": f"Bearer {st.secrets['supabase_key']}"
-    }
+import json
+
+BASE_URL = st.secrets["supabase_url"].rstrip("/")
+HEADERS = {
+    "apikey": st.secrets["supabase_key"],
+    "Authorization": f"Bearer {st.secrets['supabase_key']}",
+    "Accept": "application/json",
+}
+
+def fetch_supabase_json(path: str, params: dict | None = None, *, timeout: int = 12):
+    """GET {BASE_URL}{path} with standard headers; ensure JSON back or stop with a helpful error."""
+    try:
+        r = requests.get(f"{BASE_URL}{path}", headers=HEADERS, params=params, timeout=timeout)
+    except requests.RequestException as e:
+        st.error(f"Kon geen verbinding maken met Supabase ({e.__class__.__name__}).")
+        st.stop()
+
+    if r.status_code != 200:
+        # show a concise server message to help debugging
+        msg = r.text.strip()
+        if len(msg) > 500:
+            msg = msg[:500] + "..."
+        st.error(f"Supabase gaf {r.status_code} terug.\n\n{msg}")
+        st.stop()
+
+    # Must be JSON
+    try:
+        return r.json()
+    except ValueError:
+        # sometimes proxies or errors return HTML; surface a snippet
+        snippet = r.text.strip()
+        if len(snippet) > 500:
+            snippet = snippet[:500] + "..."
+        st.error("Onverwacht antwoord: geen geldige JSON van Supabase.\n\n"
+                 f"Content-Type: {r.headers.get('Content-Type')}\n\n"
+                 f"Body (eerste 500 chars):\n{snippet}")
+        st.stop()
+
+# Use params instead of hand-assembling the query string
+data = fetch_supabase_json(
+    "/rest/v1/submissions",
+    params={
+        "select": "*",
+        "order": "timestamp.desc",
+        "limit": 1000,
+        # You already filter later, but you can pre-filter here too:
+        # "session": f"eq.{st.session_state.access_code}",
+    },
 )
 
-if response.status_code != 200 or not response.json():
+if not data:
     st.info("Nog geen inzendingen.")
     st.stop()
 
 # ✅ Parse data into DataFrame
-df = pd.DataFrame(response.json()).drop_duplicates(subset=["name", "domain", "score", "text"])
+df = pd.DataFrame(data).drop_duplicates(subset=["name", "domain", "score", "text"])
+
+
 
 # ✅ Filter only this session's data
 df = df[df["session"] == st.session_state.access_code]

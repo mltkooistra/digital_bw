@@ -88,7 +88,6 @@ for effect_type in ["positive", "negative"]:
             del st.session_state[domain][effect_type][i]
             st.session_state.pop(delete_key)
             st.rerun()
-
 # --- Form ---
 with st.form("effects_form"):
     col_pos, col_neg = st.columns(2)
@@ -96,7 +95,7 @@ with st.form("effects_form"):
     with col_pos:
         st.header("✅ Positieve effecten")
         if st.form_submit_button("➕ Voeg positief effect toe", type="secondary"):
-            st.session_state[domain]["positive"].append({"text": "", "score": 1, "posneg": 1})
+            st.session_state[domain]["positive"].append({"text": "", "score": 0, "posneg": 1})
 
         for i, entry in enumerate(st.session_state[domain]["positive"]):
             text_key = f"{domain}_positive_text_{i}"
@@ -104,18 +103,19 @@ with st.form("effects_form"):
 
             entry["text"] = st.text_area(f"Positief effect {i+1}", value=entry["text"], key=text_key)
             entry["score"] = st.slider(
-                f"Hoe sterk is het effect op {domain}",
-                min_value=1,
-                max_value=5,
-                value=entry["score"],
-                key=score_key
+                f"Hoe sterk is het effect op {domain}?",
+                min_value=0,
+                max_value=4,
+                value=entry.get("score", 0),
+                key=score_key,
+                help="0 = verwaarloosbaar · 1 = beperkt · 2 = merkbaar · 3 = sterk · 4 = zeer sterk"
             )
             st.checkbox("🗑️ Verwijder", key=f"delete_positive_{i}")
 
     with col_neg:
         st.header("❌ Negatieve effecten")
         if st.form_submit_button("➕ Voeg negatief effect toe", type="secondary"):
-            st.session_state[domain]["negative"].append({"text": "", "score": 1, "posneg": -1})
+            st.session_state[domain]["negative"].append({"text": "", "score": 0, "posneg": -1})
 
         for i, entry in enumerate(st.session_state[domain]["negative"]):
             text_key = f"{domain}_negative_text_{i}"
@@ -123,13 +123,16 @@ with st.form("effects_form"):
 
             entry["text"] = st.text_area(f"Negatief effect {i+1}", value=entry["text"], key=text_key)
             entry["score"] = st.slider(
-                f"Hoe sterk is het effect op {domain}",
-                min_value=1,
-                max_value=5,
-                value=entry["score"],
-                key=score_key
+                f"Hoe sterk is het effect op {domain}?",
+                min_value=0,
+                max_value=4,
+                value=entry.get("score", 0),
+                key=score_key,
+                help="0 = verwaarloosbaar · 1 = beperkt · 2 = merkbaar · 3 = sterk · 4 = zeer sterk"
             )
-            st.checkbox(f"🗑️ Verwijder effect {i}", key=f"delete_negative_{i}")
+            st.checkbox("🗑️ Verwijder effect", key=f"delete_negative_{i}")
+
+
 
     # Submit all effects
     submitted = st.form_submit_button("✅ Effecten opslaan")
@@ -137,30 +140,47 @@ with st.form("effects_form"):
 # --- Save Effects to Supabase ---
 if submitted and not st.session_state.get(f"submitted_{domain_index}"):
     try:
-        for effect_type in ["positive", "negative"]:
-            for entry in st.session_state[domain][effect_type]:
-                if entry["text"].strip():
-                    requests.post(
-                        f"{st.secrets['supabase_url']}/rest/v1/submissions",
-                        headers={
-                            "apikey": st.secrets["supabase_key"],
-                            "Authorization": f"Bearer {st.secrets['supabase_key']}",
-                            "Content-Type": "application/json"
-                        },
-                        json={
-                            "submission_id": st.session_state.submission_id,
-                            "domain": domain,
-                            "text": entry["text"],
-                            "score": entry["score"],
-                            "posneg": entry["posneg"],
-                            "name": st.session_state.name,
-                            "session": st.session_state.access_code
-                        }
-                    )
+        def post_effect(content_text: str, score: int, posneg: int):
+            # coerce empty/whitespace to a single space
+            safe_text = content_text if content_text.strip() else " "
+            requests.post(
+                f"{st.secrets['supabase_url']}/rest/v1/submissions",
+                headers={
+                    "apikey": st.secrets["supabase_key"],
+                    "Authorization": f"Bearer {st.secrets['supabase_key']}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "submission_id": st.session_state.submission_id,
+                    "domain": domain,
+                    "text": safe_text,
+                    "score": score,
+                    "posneg": posneg,
+                    "name": st.session_state.name,
+                    "session": st.session_state.access_code
+                },
+                timeout=10
+            )
+
+        # If lists are empty, still save one placeholder per side
+        if not st.session_state[domain]["positive"]:
+            post_effect(" ", 1, 1)
+        else:
+            for entry in st.session_state[domain]["positive"]:
+                post_effect(entry.get("text", ""), int(entry.get("score", 1)), 1)
+
+        if not st.session_state[domain]["negative"]:
+            post_effect(" ", 1, -1)
+        else:
+            for entry in st.session_state[domain]["negative"]:
+                post_effect(entry.get("text", ""), int(entry.get("score", 1)), -1)
+
         st.success("Opgeslagen!")
         st.session_state[f"submitted_{domain_index}"] = True
+
     except Exception as e:
         st.error(f"❌ Fout bij opslaan: {e}")
+
 
 # --- Next Page Button ---
 if st.session_state.get(f"submitted_{domain_index}"):
