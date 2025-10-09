@@ -12,4 +12,4 @@ docx
 fpdf2 
 reportlab
 datetime
-docx
+python-docx
