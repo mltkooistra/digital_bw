@@ -13,3 +13,7 @@ fpdf2
 reportlab
 datetime
 python-docx
+plotly>=5.18
+kaleido==0.2.1
+Pillow
+python-docx
