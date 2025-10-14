@@ -49,7 +49,7 @@ if df_votes.empty or "text" not in df_votes.columns:
 vote_sums = df_votes.groupby("text")["votes"].sum().reset_index()
 vote_sums = vote_sums.sort_values("votes", ascending=False)
 
-# --- Top & bottom N effecten ---
+# --- Top & bottom N effecten --- ######################fix tHIS######################################################################!!!!!!!!!!!!!!!!!!!!!!!!!!!!##############################################<<<<<<<<<_________________
 n = st.session_state.get("n_effects", 3)
 top_pos = vote_sums.head(n)
 top_neg = vote_sums.tail(n)
@@ -129,5 +129,5 @@ if st.button("✅ Versturen"):
             )
     st.success("Feedback opgeslagen.")
     st.session_state["group_answers_submitted"] = True
-    st.switch_page("pages/12_rapport.py")  # Or navigate as needed
+    st.switch_page("pages/13_rapport.py")  # Or navigate as needed
 

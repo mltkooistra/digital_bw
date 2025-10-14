@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import requests
@@ -181,9 +182,9 @@ col1, col2 = st.columns(2)
 with col1:
     if st.button("➡️ Klik hier om de groepsvragen invullen"):
         st.session_state["group_question_filler"] = True
-        st.switch_page("pages/11_gezamelijke opdracht.py")  # Adjust filename/path if needed
+        st.switch_page("pages/11_gezamenlijke opdracht.py")  # Adjust filename/path if needed
 
 with col2:
     if st.button("📄 Klik hier als iemand anders de groepsvragen names je groep invult"):
         st.session_state["group_question_filler"] = False
-        st.switch_page("pages/12_rapport.py")  # Adjust filename/path if needed
+        st.switch_page("pages/12_meekijken.py")  # Adjust filename/path if needed
