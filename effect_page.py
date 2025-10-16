@@ -258,5 +258,5 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
     st.divider()
     st.info("Je kunt elk effect afzonderlijk opslaan of verwijderen.", icon="💡")
 
-    if st.button("➡️ Ga door naar het volgende domein"):
+    if st.button(f"➡️ Ga door naar het volgende domein: {next_domain}"):
         st.switch_page(f"pages/{domain_index + 1}_{next_domain}.py")
