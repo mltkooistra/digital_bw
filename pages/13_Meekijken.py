@@ -4,51 +4,47 @@ import requests
 import math
 from collections import Counter
 import re
+from urllib.parse import quote
 
 st.set_page_config(page_title="Verdiepende feedback", layout="wide")
-st.title("Verdiepingsopdracht")
+st.title("Verdiepingsopdracht (alleen-lezen)")
 
 # --- Basischecks ---
 if "name" not in st.session_state or "access_code" not in st.session_state:
     st.error("Naam of sessiecode ontbreekt. Ga terug naar de startpagina.")
     st.stop()
-
 if "group_question_filler" not in st.session_state:
     st.error("Deze pagina is niet direct toegankelijk.")
     st.stop()
 
-if st.session_state["group_question_filler"] is False:
-    st.info("⏳ Wacht tot je groepslid de groepsvragen heeft ingevuld.")
-    st.stop()
+session_code = st.session_state.access_code
+display_name = st.session_state.name
 
 # --- Groep info ---
 selected_group = str(st.session_state.get("selected_group", "1"))
 group_name = f"Groep {selected_group}"
-st.info(f"Je vult feedback in namens **{group_name}**.")
+if st.session_state.get("group_question_filler") is False:
+    st.info(f"Je kijkt mee met **{group_name}**. De vragen zijn alleen te bekijken.")
+else:
+    st.info(f"Je bekijkt de vragen namens **{group_name}** (alleen-lezen).")
 
-session_code = st.session_state.access_code
 headers = {
     "apikey": st.secrets["supabase_key"],
     "Authorization": f"Bearer {st.secrets['supabase_key']}",
 }
 
-# ========================
-# Helpers
-# ========================
-def majority_posneg(series: pd.Series):
-    """Meerderheid van {-1, 1}. Bij gelijkstand of geen geldige waarden -> None."""
+# =========================
+# Helpers (names + polarity)
+# =========================
+def normalize_name(s: str) -> str:
+    return re.sub(r"\s+", " ", str(s or "").strip().lower())
+
+def majority_direction(series: pd.Series):
+    """Return majority 'pos' of 'neg'; tie -> None."""
     if series is None or len(series) == 0:
         return None
-    vals = []
-    for v in series:
-        if pd.isna(v):
-            continue
-        try:
-            vv = int(float(v))
-            if vv in (-1, 1):
-                vals.append(vv)
-        except Exception:
-            continue
+    vals = [str(v).strip().lower() for v in series if pd.notna(v) and str(v).strip() != ""]
+    vals = [v for v in vals if v in ("pos", "neg")]
     if not vals:
         return None
     cnt = Counter(vals)
@@ -57,17 +53,7 @@ def majority_posneg(series: pd.Series):
         return None
     return mc[0][0]
 
-def as_posneg_int(val):
-    try:
-        if val is None or (isinstance(val, float) and math.isnan(val)):
-            return None
-        v = int(val)
-        return v if v in (-1, 1) else None
-    except Exception:
-        return None
-
 def norm_text(s: str) -> str:
-    """Normaliseer tekst om robuuster te matchen tussen tables."""
     if s is None:
         return ""
     s = str(s).strip().lower()
@@ -76,6 +62,7 @@ def norm_text(s: str) -> str:
 
 REACH_OPTIONS = [
     "-- geen antwoord --",
+    "individueel/huishouden",
     "de buurt",
     "wijk/dorp",
     "stad of gemeente",
@@ -84,224 +71,149 @@ REACH_OPTIONS = [
     "internationaal",
 ]
 
-def feedback_ui(row, idx, label):
+def feedback_ui(row, idx, label, disabled=True):
     st.markdown(f"### {row.get('domein','')}: {row['text']}")
-    st.text_input("1. Op welke groepen is het effect het grootst?", key=f"{label}_{idx}_q1")
-    st.text_input("2. Op welke gebied(en) is het effect het grootst?", key=f"{label}_{idx}_q2")
-    st.selectbox(
+    st.text_input(
+        "1. Op welke groepen is het effect het grootst?",
+        key=f"{label}_{idx}_q1_ro",
+        disabled=disabled,
+        placeholder="— alleen bekijken —"
+    )
+    st.text_input(
+        "2. Op welke gebied(en) is het effect het grootst?",
+        key=f"{label}_{idx}_q2_ro",
+        disabled=disabled,
+        placeholder="— alleen bekijken —"
+    )
+
+    # 🔁 SHOW MC OPTIONS EXPLICITLY (radio shows all choices even when disabled)
+    st.radio(
         "3. Hoe ver reikt het effect?",
         options=REACH_OPTIONS,
         index=0,
-        key=f"{label}_{idx}_q_reikwijdte"
+        key=f"{label}_{idx}_q_reikwijdte_ro",
+        disabled=True,
+        help="Alle opties zichtbaar; keuze kan hier niet aangepast worden."
     )
+
     st.slider(
         "4. Wanneer verwacht je dat het effect zichtbaar wordt?",
         min_value=0, max_value=50, value=0, step=1,
         format="%d jaar",
         help="0 = meteen vanaf de start, 50 = pas over 50 jaar of later",
-        key=f"{label}_{idx}_q_start_year"
+        key=f"{label}_{idx}_q_start_year_ro",
+        disabled=disabled
     )
-    st.text_input("5. Zijn er aanpassingen aan de interventie mogelijk of nodig?", key=f"{label}_{idx}_q3")
+    st.text_input(
+        "5. Zijn er aanpassingen aan de interventie mogelijk of nodig?",
+        key=f"{label}_{idx}_q3_ro",
+        disabled=disabled,
+        placeholder="— alleen bekijken —"
+    )
     st.markdown("---")
 
-# ========================
-# DATA OPHALEN
-# ========================
-
-# 1) Votes
+# ---------- DATA: votes ----------
 r_votes = requests.get(
     f"{st.secrets['supabase_url']}/rest/v1/effect_votes?select=*",
-    headers=headers,
-    timeout=15,
+    headers=headers, timeout=15,
 )
 df_votes = pd.DataFrame(r_votes.json()) if r_votes.status_code == 200 else pd.DataFrame()
 
-# Filter op sessie
 if not df_votes.empty and "session" in df_votes.columns:
     df_votes = df_votes[df_votes["session"] == session_code].copy()
 
-# Guard rails
 mandatory_cols = {"group_id", "votes", "text"}
 if df_votes.empty or not mandatory_cols.issubset(set(df_votes.columns)):
     st.warning("Geen stemgegevens beschikbaar voor deze sessie.")
     st.stop()
 
-# Filter op jouw groep via group_id-prefix
+# Filter op jouw groep
 prefix = f"{session_code}_{selected_group}_"
 df_votes = df_votes[df_votes["group_id"].astype(str).str.startswith(prefix, na=False)].copy()
-
 if df_votes.empty:
     st.info("Nog geen stemmen voor jouw groep.")
     st.stop()
 
-# Typen & kolommen
 df_votes["votes"] = pd.to_numeric(df_votes.get("votes", 0), errors="coerce").fillna(0).astype(int)
 if "domein" not in df_votes.columns:
     df_votes["domein"] = ""
-if "posneg" not in df_votes.columns:
-    df_votes["posneg"] = pd.NA
+if "direction" not in df_votes.columns:
+    df_votes["direction"] = pd.NA
 
-# 2) Submissions (bron voor polariteit)
-# We halen ten minste text & posneg op. (session en group_id om te filteren)
+# ---------- DATA: submissions (bron voor direction) ----------
 r_sub = requests.get(
-    f"{st.secrets['supabase_url']}/rest/v1/submissions?select=text,posneg,session,group_id,domein",
-    headers=headers,
-    timeout=15,
+    f"{st.secrets['supabase_url']}/rest/v1/submissions?select=text,direction,session,group_id,domein",
+    headers=headers, timeout=15,
 )
 df_sub = pd.DataFrame(r_sub.json()) if r_sub.status_code == 200 else pd.DataFrame()
-
 if not df_sub.empty:
     if "session" in df_sub.columns:
         df_sub = df_sub[df_sub["session"] == session_code].copy()
     if "group_id" in df_sub.columns:
         df_sub = df_sub[df_sub["group_id"].astype(str).str.startswith(prefix, na=False)].copy()
 
-# ========================
-# POLARITEIT UIT SUBMISSIONS
-# ========================
-# Maak een mapping van genormaliseerde text -> majority posneg uit submissions
-posneg_from_sub = {}
-if not df_sub.empty and "text" in df_sub.columns and "posneg" in df_sub.columns:
+# ---------- Polarity mapping per TEXT ----------
+direction_from_sub = {}
+if not df_sub.empty and {"text", "direction"}.issubset(df_sub.columns):
     df_sub["text_norm"] = df_sub["text"].map(norm_text)
-    # Groepeer per text_norm en neem meerderheid van posneg
     sub_agg = (
-        df_sub.groupby("text_norm", dropna=False)["posneg"]
-        .apply(majority_posneg)
-        .reset_index(name="posneg_majority")
+        df_sub.groupby("text_norm", dropna=False)["direction"]
+        .apply(majority_direction)
+        .reset_index(name="dir_maj")
     )
-    # Zet in dict
-    posneg_from_sub = {
-        row["text_norm"]: row["posneg_majority"]
-        for _, row in sub_agg.iterrows()
-        if row["text_norm"] != ""
-    }
+    direction_from_sub = {r["text_norm"]: r["dir_maj"] for _, r in sub_agg.iterrows() if r["text_norm"] != ""}
 
-# ========================
-# AGGREGATIE STEMMEN PER EFFECTGROEP
-# ========================
+# ---------- Aggregate ALL voted items ----------
 agg = (
     df_votes.groupby("group_id", dropna=False)
     .agg(
         votes=("votes", "sum"),
         text=("text", "first"),
         domein=("domein", "first"),
-        posneg_votes=("posneg", majority_posneg),  # fallback indien submissions niets heeft
+        direction_votes=("direction", lambda s: majority_direction(pd.Series([v for v in s if pd.notna(v)]))),
     )
     .reset_index()
 )
 
-# Match text -> polarity uit submissions
+# Koppel direction uit submissions per text (norm)
 agg["text_norm"] = agg["text"].map(norm_text)
-agg["posneg_from_sub"] = agg["text_norm"].map(posneg_from_sub)
+agg["direction_from_sub"] = agg["text_norm"].map(direction_from_sub)
 
-# Definitieve polariteit: eerst submissions, anders majority uit votes
-def pick_polarity(row):
-    if pd.notna(row.get("posneg_from_sub")):
-        return as_posneg_int(row["posneg_from_sub"])
-    return as_posneg_int(row.get("posneg_votes"))
+def pick_direction(row):
+    if pd.notna(row.get("direction_from_sub")):
+        return row["direction_from_sub"]
+    return row.get("direction_votes")
 
-agg["posneg_resolved"] = agg.apply(pick_polarity, axis=1)
+agg["direction_resolved"] = agg.apply(pick_direction, axis=1)
 
-# ========================
-# DEBUG
-# ========================
-with st.expander("🔎 Debug"):
-    st.write("Aantal stemmen (na sessie+groep-filter):", len(df_votes))
-    st.write("Unieke effectgroepen:", agg["group_id"].nunique())
-    st.write("Submissions records (na filter):", 0 if df_sub is None else len(df_sub))
-    st.write("Met posneg=1:", len(agg[agg["posneg_resolved"] == 1]))
-    st.write("Met posneg=-1:", len(agg[agg["posneg_resolved"] == -1]))
-    st.write("Onbekende polariteit:", len(agg[agg["posneg_resolved"].isna()]))
-    st.write("Voorbeeld records:", agg.head(5))
-
-# ========================
-# TOPLIJSTEN (meeste stemmen binnen elke polariteit)
-# ========================
-n = int(st.session_state.get("n_effects", 3))
-
+# ---------- Top 3 positief en top 3 negatief ----------
 top_pos = (
-    agg[agg["posneg_resolved"] == 1]
+    agg[agg["direction_resolved"] == "pos"]
     .sort_values("votes", ascending=False)
-    .head(n)
+    .head(3)
     .reset_index(drop=True)
 )
-
 top_neg = (
-    agg[agg["posneg_resolved"] == -1]
+    agg[agg["direction_resolved"] == "neg"]
     .sort_values("votes", ascending=False)
-    .head(n)
+    .head(3)
     .reset_index(drop=True)
 )
 
-unknown = (
-    agg[agg["posneg_resolved"].isna()]
-    .sort_values("votes", ascending=False)
-    .reset_index(drop=True)
-)
-
-# ========================
-# FEEDBACK UI
-# ========================
-st.header(f"Top {n} Positieve effecten (meeste stemmen)")
+# ---------- UI (READ-ONLY) ----------
+st.header("Top 3 Positieve effecten (meeste stemmen)")
 if top_pos.empty:
-    st.info("Geen positieve effecten (met bekende polariteit) gevonden voor jouw groep.")
+    st.info("Geen positieve effecten gevonden.")
 else:
     for i, row in top_pos.iterrows():
-        feedback_ui(row, i, "Pos")
+        feedback_ui(row, i, "Pos", disabled=True)
 
-st.header(f"Top {n} Negatieve effecten (meeste stemmen)")
+st.header("Top 3 Negatieve effecten (meeste stemmen)")
 if top_neg.empty:
-    st.info("Geen negatieve effecten (met bekende polariteit) gevonden voor jouw groep.")
+    st.info("Geen negatieve effecten gevonden.")
 else:
     for i, row in top_neg.iterrows():
-        feedback_ui(row, i, "Neg")
+        feedback_ui(row, i, "Neg", disabled=True)
 
-st.header("⚖️ Onbekende polariteit (pos/neg niet gevonden)")
-if unknown.empty:
-    st.caption("Geen effecten met onbekende polariteit.")
-else:
-    for i, row in unknown.iterrows():
-        feedback_ui(row, i, "Unk")
-
-# ========================
-# OPSLAAN
-# ========================
-if st.button("✅ Versturen"):
-    ok = 0
-    to_save = [("Pos", top_pos), ("Neg", top_neg)]
-    # Wil je unknown ook opslaan? -> to_save.append(("Unk", unknown))
-
-    for label, group_df in to_save:
-        for idx, row in group_df.iterrows():
-            posneg_to_save = row.get("posneg_from_sub")
-            if pd.isna(posneg_to_save):
-                posneg_to_save = row.get("posneg_votes")  # fallback
-
-            payload = {
-                "session": session_code,
-                "group": group_name,
-                "text": row["text"],
-                "domein": row.get("domein", ""),
-                "posneg": as_posneg_int(posneg_to_save),  # -1 of 1
-                "feedback_group_impact": st.session_state.get(f"{label}_{idx}_q1", ""),
-                "feedback_place_impact": st.session_state.get(f"{label}_{idx}_q2", ""),
-                "feedback_distance": st.session_state.get(f"{label}_{idx}_q_reikwijdte", ""),
-                "feedback_improvements": st.session_state.get(f"{label}_{idx}_q3", ""),
-                "feedback_start": st.session_state.get(f"{label}_{idx}_q_start_year", 0),
-                "group_id": row.get("group_id", None),
-            }
-
-            r = requests.post(
-                f"{st.secrets['supabase_url']}/rest/v1/group_results?on_conflict=group,text",
-                headers={**headers, "Content-Type": "application/json", "Prefer": "return=representation"},
-                json=payload,
-                timeout=15,
-            )
-            if r.status_code in (200, 201):
-                ok += 1
-            else:
-                st.error(f"Opslaan mislukt voor “{row['text']}”: {r.status_code} {r.text}")
-
-    st.success(f"Feedback opgeslagen ({ok} items).")
-    st.session_state["group_answers_submitted"] = True
-    st.switch_page("pages/14_rapport.py")
+# Geen opslaan of verzenden in alleen-lezen weergave
+st.info("Deze pagina is alleen ter inzage. Antwoorden kunnen hier niet worden ingevuld of opgeslagen.")

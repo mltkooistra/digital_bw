@@ -42,7 +42,7 @@ chosen = st.radio(
     horizontal=True,
 )
 
-st.caption("Tip: spreek met je tafelgenoten af welke groepnummers jullie nemen.")
+st.caption("Wacht tot je ingedeeld bent in een groep, ga pas verder als de groep compleet is")
 
 # --- Supabase helpers ---
 HEADERS_JSON = {

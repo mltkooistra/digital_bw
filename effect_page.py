@@ -3,17 +3,20 @@ import streamlit as st
 import requests
 import uuid
 import pandas as pd
+from urllib.parse import quote  # NEW: for URL-safe name filter
 
 def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
     st.set_page_config(page_title=f"Effect op {domain}", layout="wide")
     st.title(f"Effect op {domain}")
 
     # --- Controle sessie ---
-    required_vars = ["access_code", "info", "description", "prov"]
+    required_vars = ["access_code", "info", "description", "prov", "name"]
     for v in required_vars:
         if v not in st.session_state:
             st.error(f"Sessiestatus '{v}' ontbreekt. Ga terug naar startpagina.")
             st.stop()
+
+    current_name = str(st.session_state.name)
 
     # --- Unieke submission_id ---
     if "submission_id" not in st.session_state or not st.session_state["submission_id"]:
@@ -36,12 +39,13 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
         }
 
     # --- Nieuwe entry helper ---
-    def _new_entry(posneg: int, text: str = "", score: int = SCORE_MIN, mode: str = "edit"):
+    def _new_entry(direction: str, text: str = "", score: int = SCORE_MIN, mode: str = "edit"):
+        direction = "pos" if direction not in ("pos", "neg") else direction
         return {
             "id": str(uuid.uuid4()),
             "text": text,
             "score": score,
-            "posneg": posneg,
+            "direction": direction,
             "mode": mode,
             "row_id": None,
         }
@@ -50,37 +54,61 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
     if domain not in st.session_state:
         st.session_state[domain] = {"positive": [], "negative": [], "loaded": False}
 
-    # --- Laden van bestaande effecten ---
+    # --- Laden van bestaande effecten (alleen van deze persoon) ---
     if not st.session_state[domain]["loaded"]:
         try:
+            # URL-safe name for filters
+            name_eq = quote(current_name, safe="")
+
             q = (
-                f"?select=id,text,score,posneg,submission_id,session,domain"
+                f"?select=id,text,score,direction,posneg,submission_id,session,domain,name"
                 f"&submission_id=eq.{st.session_state.submission_id}"
                 f"&domain=eq.{domain}"
+                f"&name=eq.{name_eq}"  # filter by same person
             )
             r = requests.get(BASE + q, headers=headers(), timeout=10)
             rows = r.json() if r.ok else []
+
             if not rows:
+                # fallback: filter by current session + domain + name
                 q2 = (
-                    f"?select=id,text,score,posneg,submission_id,session,domain"
+                    f"?select=id,text,score,direction,posneg,submission_id,session,domain,name"
                     f"&session=eq.{st.session_state.access_code}"
                     f"&domain=eq.{domain}"
+                    f"&name=eq.{name_eq}"  # filter by same person
                 )
                 r2 = requests.get(BASE + q2, headers=headers(), timeout=10)
                 rows = r2.json() if r2.ok else []
+
+            # Extra safety: client-side filter by exact name
+            rows = [row for row in rows if str(row.get("name", "")) == current_name]
+
             for row in rows:
-                etype = "positive" if int(row.get("posneg", 0)) == 1 else "negative"
+                # Prefer 'direction'; fallback to legacy 'posneg'
+                dir_val = row.get("direction")
+                if not dir_val:
+                    pn = row.get("posneg", None)
+                    if pn is not None:
+                        try:
+                            dir_val = "pos" if int(pn) == 1 else "neg"
+                        except Exception:
+                            dir_val = "pos"
+                    else:
+                        dir_val = "pos"
+                etype = "positive" if dir_val == "pos" else "negative"
+
                 st.session_state[domain][etype].append({
                     "id": str(uuid.uuid4()),
                     "text": row.get("text", ""),
-                    "score": int(row.get("score", SCORE_MIN)),
-                    "posneg": int(row.get("posneg", 0)),
+                    "score": int(row.get("score", SCORE_MIN) or SCORE_MIN),
+                    "direction": dir_val,
                     "mode": "view",
                     "row_id": row.get("id"),
                 })
             st.session_state[domain]["loaded"] = True
         except Exception as e:
             st.warning(f"Kon eerdere antwoorden niet laden: {e}")
+
 
     # --- Domeininformatie laden ---
     try:
@@ -89,6 +117,7 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
         info_text = info["introductietekst"].iloc[0]
         questions = info["hulpvragen"].iloc[0].split("-")
         question_list = "\n".join([f"- {q.strip()}" for q in questions if q.strip()])
+        question_text = "<br>".join([q.strip() for q in questions])
         link = info["link_GR"].iloc[0] if st.session_state.prov == "GR" else info["link_DR"].iloc[0]
     except Exception:
         info_text, question_list, link = "", "", "#"
@@ -108,17 +137,27 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
     )
     st.markdown(
         f"""
-        We zijn benieuwd naar de mogelijke effecten van 
-        <span title="{st.session_state.info}"
-              style="border-bottom:1px dotted #999;cursor:help;">
-        {st.session_state.description}</span> 
-        op {domain}.
+        We zijn benieuwd naar de mogelijke effecten van **{st.session_state.description}** op **{domain}**.
 
-        {info_text}
+        Klik op de blauwe tekst voor meer informatie
 
-        Denk bijvoorbeeld aan de volgende vragen:
+        <details>
+        <summary style="cursor: pointer; font-weight: bold; color: #0b74de;">
+            Waar gaat het domein {domain} over?
+        </summary>
+        <div style="margin-top: 8px;">
+            {info_text}
+        </div>
+        </details>
 
-        {question_list}
+        <details>
+        <summary style="cursor: pointer; font-weight: bold; color: #0b74de;">
+            Voorbeeldonderwerpen bij {domain}
+        </summary>
+        <div style="margin-top: 8px;">
+            {question_text}
+        </div>
+        </details>
         """,
         unsafe_allow_html=True,
     )
@@ -127,16 +166,20 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
     #  CRUD FUNCTIES
     # =======================================================
     def save_effect(effect):
-        """Upsert zonder on_conflict; altijd geldige score binnen 1–5."""
+        """Upsert; schrijft 'direction' (pos/neg) i.p.v. 'posneg'."""
         score_val = int(effect.get("score", SCORE_MIN))
         score_val = max(SCORE_MIN, min(SCORE_MAX, score_val))
+
+        direction = effect.get("direction", "pos")
+        if direction not in ("pos", "neg"):
+            direction = "pos"
 
         data = {
             "submission_id": str(st.session_state.get("submission_id")),
             "domain": str(domain),
             "text": (effect.get("text") or " ").strip(),
             "score": score_val,
-            "posneg": int(effect.get("posneg", 0)),
+            "direction": direction,  # <<---- new field used
             "session": str(st.session_state.get("access_code", "")),
         }
         if st.session_state.get("name"):
@@ -213,6 +256,8 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
                         key=f"{etype}_score_{effect['id']}", help=SCORE_HELP
                     )
                     if st.button("💾 Opslaan", key=f"{etype}_save_{effect['id']}", use_container_width=True):
+                        # ensure direction matches column type
+                        effect["direction"] = "pos" if etype == "positive" else "neg"
                         if save_effect(effect):
                             effect["mode"] = "view"
                             st.rerun()
@@ -220,8 +265,6 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
                 c1, c2, c3 = st.columns([6, 1, 1])
                 with c1:
                     st.markdown(f"**Score {effect['score']}** – {effect['text'] or '_(geen tekst)_'}")
-                    if effect.get("row_id"):
-                        st.caption(f"Row ID: `{effect['row_id']}`")
                 with c2:
                     if st.button("✏️", key=f"{etype}_edit_{effect['id']}"):
                         effect["mode"] = "edit"
@@ -244,7 +287,7 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
         for i, e in enumerate(st.session_state[domain]["positive"]):
             render_effect(e, "positive", i)
         if st.button("➕ Voeg positief effect toe"):
-            st.session_state[domain]["positive"].append(_new_entry(1))
+            st.session_state[domain]["positive"].append(_new_entry("pos"))
             st.rerun()
 
     with col_neg:
@@ -252,7 +295,7 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
         for i, e in enumerate(st.session_state[domain]["negative"]):
             render_effect(e, "negative", i)
         if st.button("➕ Voeg negatief effect toe"):
-            st.session_state[domain]["negative"].append(_new_entry(-1))
+            st.session_state[domain]["negative"].append(_new_entry("neg"))
             st.rerun()
 
     st.divider()
