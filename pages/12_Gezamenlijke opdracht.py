@@ -464,4 +464,4 @@ if st.button("✅ Versturen"):
 
     st.success(f"Feedback opgeslagen ({ok} items).")
     st.session_state["group_answers_submitted"] = True
-    st.switch_page("pages/14_rapport.py")
+    st.switch_page("pages/14_Rapport.py")

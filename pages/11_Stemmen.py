@@ -594,7 +594,7 @@ else:
                     else "Negatief" if effect.get("direction") == "neg"
                     else "Onbekend"
                 )
-                st.caption(f"Domein: {effect['domain']} • {dir_label} • Stemmen: {effect['votes']}")
+                st.caption(f"Domein: {effect['domain']} • {dir_label}")
                 vote_buttons(effect)
 
 # =======================
@@ -622,14 +622,14 @@ else:
             if ok:
                 st.session_state["group_question_filler"] = True
                 st.session_state["selected_group"] = selected_group_num
-                st.switch_page("pages/12_gezamenlijke opdracht.py")
+                st.switch_page("pages/12_Gezamenlijke opdracht.py")
             else:
                 st.warning("Kon je niet als groepsleider registreren. Kies 'meekijken' of probeer opnieuw.")
     with col2:
         if st.button("📄 Klik hier als iemand anders de groepsvragen namens je groep invult"):
             st.session_state["group_question_filler"] = False
             st.session_state["selected_group"] = selected_group_num
-            st.switch_page("pages/13_meekijken.py")
+            st.switch_page("pages/13_Meekijken.py")
 
 # =======================
 # JE STEMMEN (undo = tegenovergestelde delta)

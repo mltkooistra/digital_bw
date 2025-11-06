@@ -3,7 +3,7 @@ import streamlit as st
 import requests
 import uuid
 import pandas as pd
-from urllib.parse import quote  # NEW: for URL-safe name filter
+from urllib.parse import quote  # for URL-safe name filter
 
 def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
     st.set_page_config(page_title=f"Effect op {domain}", layout="wide")
@@ -24,8 +24,6 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
 
     # --- Config / constants ---
     BASE = f"{st.secrets['supabase_url']}/rest/v1/submissions"
-    SCORE_MIN, SCORE_MAX = 1, 5
-    SCORE_HELP = "1 = verwaarloosbaar · 2 = beperkt · 3 = merkbaar · 4 = sterk · 5 = zeer sterk"
 
     # --- Headers helper ---
     def headers(return_representation: bool = True):
@@ -39,12 +37,12 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
         }
 
     # --- Nieuwe entry helper ---
-    def _new_entry(direction: str, text: str = "", score: int = SCORE_MIN, mode: str = "edit"):
+    def _new_entry(direction: str, text: str = "", mode: str = "edit"):
         direction = "pos" if direction not in ("pos", "neg") else direction
         return {
             "id": str(uuid.uuid4()),
             "text": text,
-            "score": score,
+            "score": 1,  # always 1, not shown
             "direction": direction,
             "mode": mode,
             "row_id": None,
@@ -100,7 +98,7 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
                 st.session_state[domain][etype].append({
                     "id": str(uuid.uuid4()),
                     "text": row.get("text", ""),
-                    "score": int(row.get("score", SCORE_MIN) or SCORE_MIN),
+                    "score": 1,  # force 1 locally even if DB has something else
                     "direction": dir_val,
                     "mode": "view",
                     "row_id": row.get("id"),
@@ -108,7 +106,6 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
             st.session_state[domain]["loaded"] = True
         except Exception as e:
             st.warning(f"Kon eerdere antwoorden niet laden: {e}")
-
 
     # --- Domeininformatie laden ---
     try:
@@ -167,9 +164,6 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
     # =======================================================
     def save_effect(effect):
         """Upsert; schrijft 'direction' (pos/neg) i.p.v. 'posneg'."""
-        score_val = int(effect.get("score", SCORE_MIN))
-        score_val = max(SCORE_MIN, min(SCORE_MAX, score_val))
-
         direction = effect.get("direction", "pos")
         if direction not in ("pos", "neg"):
             direction = "pos"
@@ -178,8 +172,8 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
             "submission_id": str(st.session_state.get("submission_id")),
             "domain": str(domain),
             "text": (effect.get("text") or " ").strip(),
-            "score": score_val,
-            "direction": direction,  # <<---- new field used
+            "score": 1,  # always 1 in DB
+            "direction": direction,  # new field used
             "session": str(st.session_state.get("access_code", "")),
         }
         if st.session_state.get("name"):
@@ -193,7 +187,7 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
                     f"?select=id"
                     f"&submission_id=eq.{data['submission_id']}"
                     f"&domain=eq.{data['domain']}"
-                    f"&text=eq.{data['text']}"
+                    f"&text=eq.{quote(data['text'], safe='')}"
                 )
                 r_lookup = requests.get(BASE + q, headers=headers(False), timeout=10)
                 if r_lookup.ok:
@@ -240,42 +234,36 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
     def render_effect(effect, etype, idx):
         with st.container(border=True):
             if effect.get("mode") == "edit":
-                c1, c2 = st.columns([3, 1])
-                with c1:
-                    effect["text"] = st.text_area(
-                        "Beschrijf het effect",
-                        value=effect.get("text", ""),
-                        key=f"{etype}_txt_{effect['id']}",
-                        height=100,
-                    )
-                with c2:
-                    start_score = int(effect.get("score", SCORE_MIN))
-                    start_score = max(SCORE_MIN, min(SCORE_MAX, start_score))
-                    effect["score"] = st.slider(
-                        "Hoe sterk?", SCORE_MIN, SCORE_MAX, start_score,
-                        key=f"{etype}_score_{effect['id']}", help=SCORE_HELP
-                    )
-                    if st.button("💾 Opslaan", key=f"{etype}_save_{effect['id']}", use_container_width=True):
-                        # ensure direction matches column type
-                        effect["direction"] = "pos" if etype == "positive" else "neg"
-                        if save_effect(effect):
-                            effect["mode"] = "view"
-                            st.rerun()
+                effect["text"] = st.text_area(
+                    "Beschrijf het effect",
+                    value=effect.get("text", ""),
+                    key=f"{etype}_txt_{effect['id']}",
+                    height=100,
+                )
+                if st.button("💾 Opslaan", key=f"{etype}_save_{effect['id']}", use_container_width=True):
+                    # ensure direction matches column type
+                    effect["direction"] = "pos" if etype == "positive" else "neg"
+                    effect["score"] = 1  # always 1 locally too
+                    if save_effect(effect):
+                        effect["mode"] = "view"
+                        st.rerun()
             else:
-                c1, c2, c3 = st.columns([6, 1, 1])
+                c1, c2 = st.columns([7, 1])
                 with c1:
-                    st.markdown(f"**Score {effect['score']}** – {effect['text'] or '_(geen tekst)_'}")
+                    st.markdown(effect.get("text") or "_(geen tekst)_")
                 with c2:
-                    if st.button("✏️", key=f"{etype}_edit_{effect['id']}"):
-                        effect["mode"] = "edit"
-                        st.rerun()
-                with c3:
-                    if st.button("🗑️", key=f"{etype}_del_{effect['id']}"):
-                        delete_effect(effect)
-                        st.session_state[domain][etype] = [
-                            e for e in st.session_state[domain][etype] if e["id"] != effect["id"]
-                        ]
-                        st.rerun()
+                    col_e, col_d = st.columns([1, 1])
+                    with col_e:
+                        if st.button("✏️", key=f"{etype}_edit_{effect['id']}"):
+                            effect["mode"] = "edit"
+                            st.rerun()
+                    with col_d:
+                        if st.button("🗑️", key=f"{etype}_del_{effect['id']}"):
+                            delete_effect(effect)
+                            st.session_state[domain][etype] = [
+                                e for e in st.session_state[domain][etype] if e["id"] != effect["id"]
+                            ]
+                            st.rerun()
 
     # =======================================================
     #  UI
