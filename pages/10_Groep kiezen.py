@@ -107,4 +107,5 @@ if st.button("➡️ Doorgaan"):
             st.warning("Kon je keuze niet opslaan in de database. Probeer het later nog eens.")
         else:
             st.success(f"Je keuze is opgeslagen: **{chosen}**.")
-            st.switch_page("pages/11_stemmen.py")
+            st.switch_page("pages/11_Stemmen.py")
+            
