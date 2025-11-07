@@ -223,6 +223,52 @@ def format_stats(values):
         return "geen data"
     return f"min: {min(values)} jaar, max: {max(values)} jaar, gemiddeld: {round(statistics.mean(values), 1)} jaar"
 
+# =========================
+# Ensure expected group_results columns (NEW QUESTIONS)
+# =========================
+for col, default in [
+    ("direction", None),
+    ("feedback_group_impact", ""),
+    ("feedback_distance", []),      # JSON array (list)
+    ("feedback_start", ""),         # categorical: direct/weken/...
+    ("feedback_improvements", ""),
+    ("group", ""),
+    ("text", ""),
+    ("domein", ""),
+]:
+    if col not in df_group.columns:
+        df_group[col] = default
+
+# Normalize JSON/list-like columns that may be strings in DB
+def _as_list(v):
+    if isinstance(v, list):
+        return v
+    if isinstance(v, str) and v.strip():
+        try:
+            import json as _json
+            parsed = _json.loads(v)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            return [p.strip() for p in v.split(",") if p.strip()]
+    return []
+
+df_group["feedback_distance"] = df_group["feedback_distance"].apply(_as_list)
+
+# Split pos/neg datasets
+df_pos = df_group[df_group["direction"].astype(str).str.lower().eq("pos")].copy()
+df_neg = df_group[df_group["direction"].astype(str).str.lower().eq("neg")].copy()
+
+# Derive a simple "votes" count per effect text within each polarity (if no explicit votes column)
+if "votes" not in df_pos.columns:
+    df_pos["votes"] = df_pos.groupby("text")["text"].transform("count")
+if "votes" not in df_neg.columns:
+    df_neg["votes"] = df_neg.groupby("text")["text"].transform("count")
+
+# Sort by votes
+df_pos = df_pos.sort_values("votes", ascending=False)
+df_neg = df_neg.sort_values("votes", ascending=False)
+
 # --- Build the DOCX in memory (always build so both buttons can use it) ---
 doc = Document()
 doc.add_heading(f"Verslag werksessie – {st.session_state.get('description', '–')}", 0)
@@ -241,69 +287,95 @@ doc.add_paragraph("In onderstaande grafiek zie je hoe positief of negatief elk d
 doc.add_picture(save_plotly_chart(create_spider_chart(grouped)), width=Inches(6))
 doc.add_page_break()
 
-# --- Top effects ---
-if "text" not in df_group.columns:
-    df_group["text"] = ""
-df_group["votes"] = df_group.groupby("text")["text"].transform("count")
-df_pos = df_group.sort_values("votes", ascending=False)
-df_neg = pd.DataFrame(columns=df_group.columns)  # placeholder als je negatieven niet apart bijhoudt
-
+# --- Top effects (uses pos/neg splits) ---
 doc.add_heading("2. Hoogst gewaardeerde effecten", level=1)
 top_n = max(1, (n_groups if n_groups else 1) * 3)
+
 for label, group_df in [("Positief", df_pos), ("Negatief", df_neg)]:
     doc.add_heading(f"{label} – meest genoemde effecten", level=2)
+    if group_df.empty:
+        doc.add_paragraph("— Geen effecten —")
+        continue
     for _, row in group_df.head(top_n).iterrows():
         doc.add_paragraph(f"• {row['text']} ({row['votes']} stemmen)")
 doc.add_page_break()
 
-# --- Summary ---
-pos_groups, neg_groups = [], []
-pos_places, neg_places = [], []
-pos_reach, neg_reach = [], []
-if "feedback_start" not in df_group.columns:
-    df_group["feedback_start"] = None
+# --- Summary (no 'plaatsen' anymore) ---
+def summarize_reach(list_series):
+    # Flatten list-of-lists and count top items
+    from collections import Counter
+    all_items = []
+    for v in list_series:
+        if isinstance(v, list):
+            all_items.extend([str(x) for x in v if str(x)])
+    if not all_items:
+        return "—"
+    cnt = Counter(all_items)
+    # show top 5: item (count)
+    top = ", ".join([f"{k} ({v})" for k, v in cnt.most_common(5)])
+    return top
 
-pos_start_vals = [safe_int(v) for v in df_group.get("feedback_start", pd.Series()).tolist()]
-pos_start_vals = [v for v in pos_start_vals if v is not None]
-neg_start_vals = []  # alleen als je negatieven apart trackt
+def summarize_start(cat_series):
+    vals = [str(v) for v in cat_series if isinstance(v, str) and v.strip()]
+    if not vals:
+        return "—"
+    from collections import Counter
+    cnt = Counter(vals)
+    mode, mode_n = cnt.most_common(1)[0]
+    total = sum(cnt.values())
+    parts = [f"{k}: {v}" for k, v in cnt.most_common()]
+    return f"meest genoemd: {mode} ({mode_n}/{total}); verdeling: " + ", ".join(parts)
 
-doc.add_heading("3. Samenvatting wie waar wanneer", level=1)
-doc.add_paragraph("Hier zie je hoe de positieve en negatieve effecten geconcentreerd zijn bij groepen, plekken of in de tijd")
+doc.add_heading("3. Samenvatting wie – reikwijdte – wanneer", level=1)
+doc.add_paragraph("Overzicht per polariteit (positieve en negatieve effecten).")
 
+# Positive
 doc.add_heading("Positieve effecten", level=2)
-doc.add_paragraph(f"• Groepen: {', '.join(filter(None, pos_groups)) or '—'}")
-doc.add_paragraph(f"• Plaatsen: {', '.join(filter(None, pos_places)) or '—'}")
-doc.add_paragraph(f"• Reikwijdte: {', '.join(filter(None, pos_reach)) or '—'}")
-doc.add_paragraph(f"• Verwachte start effect: {format_stats(pos_start_vals)}")
+doc.add_paragraph(
+    "• Voor wie is het effect het grootst? " +
+    (', '.join([s for s in df_pos['feedback_group_impact'].astype(str).tolist() if s]) or '—')
+)
+doc.add_paragraph(f"• Reikwijdte (meest genoemd): {summarize_reach(df_pos['feedback_distance'].tolist())}")
+doc.add_paragraph(f"• Verwachte start (samenvatting): {summarize_start(df_pos['feedback_start'].tolist())}")
 
+# Negative
 doc.add_heading("Negatieve effecten", level=2)
-doc.add_paragraph(f"• Groepen: {', '.join(filter(None, neg_groups)) or '—'}")
-doc.add_paragraph(f"• Plaatsen: {', '.join(filter(None, neg_places)) or '—'}")
-doc.add_paragraph(f"• Reikwijdte: {', '.join(filter(None, neg_reach)) or '—'}")
-doc.add_paragraph(f"• Verwachte start effect: {format_stats(neg_start_vals)}")
+doc.add_paragraph(
+    "• Voor wie is het effect het grootst? " +
+    (', '.join([s for s in df_neg['feedback_group_impact'].astype(str).tolist() if s]) or '—')
+)
+doc.add_paragraph(f"• Reikwijdte (meest genoemd): {summarize_reach(df_neg['feedback_distance'].tolist())}")
+doc.add_paragraph(f"• Verwachte start (samenvatting): {summarize_start(df_neg['feedback_start'].tolist())}")
 doc.add_page_break()
 
-# --- Details per effect ---
+# --- Details per effect (no 'plaatsimpact', conditional last question label) ---
 doc.add_heading("4. Groepsfeedback voor de belangrijkste effecten", level=1)
+
+def reach_as_text(v):
+    if isinstance(v, list):
+        return ", ".join([str(x) for x in v if str(x)]) or "—"
+    return str(v) if str(v) else "—"
+
 for label, group_df in [("Positief", df_pos), ("Negatief", df_neg)]:
     doc.add_heading(f"{label}e effecten", level=2)
+    if group_df.empty:
+        doc.add_paragraph("— Geen effecten —")
+        continue
+
     for _, row in group_df.iterrows():
         doc.add_heading(f"Effect: {row.get('text','')}", level=3)
         doc.add_paragraph(f"Groep: {row.get('group', '–')}")
-        doc.add_paragraph(f"- Groepsimpact: {row.get('feedback_group_impact', '')}")
-        doc.add_paragraph(f"- Plaatsimpact: {row.get('feedback_place_impact', '')}")
-        doc.add_paragraph(f"- Reikwijdte: {row.get('feedback_distance', '')}")
-        doc.add_paragraph(f"- Verbeteringen: {row.get('feedback_improvements', '')}")
+        doc.add_paragraph(f"- Voor wie is dit effect het grootst? {row.get('feedback_group_impact', '') or '—'}")
+        doc.add_paragraph(f"- Reikwijdte: {reach_as_text(row.get('feedback_distance', []))}")
+        doc.add_paragraph(f"- Wanneer verwacht: {row.get('feedback_start', '') or '—'}")
 
-        # verzamel voor de samenvatting
-        if label == "Positief":
-            pos_groups.append(row.get('feedback_group_impact', ''))
-            pos_places.append(row.get('feedback_place_impact', ''))
-            pos_reach.append(row.get('feedback_distance', ''))
+        # Conditional improvements phrasing
+        if label.startswith("Pos"):
+            improv_label = "Zijn er aanpassingen mogelijk om het effect te versterken?"
         else:
-            neg_groups.append(row.get('feedback_group_impact', ''))
-            neg_places.append(row.get('feedback_place_impact', ''))
-            neg_reach.append(row.get('feedback_distance', ''))
+            improv_label = "Zijn er aanpassingen mogelijk aan de interventie om dit effect te beperken of voorkomen?"
+
+        doc.add_paragraph(f"- {improv_label} {row.get('feedback_improvements', '') or '—'}")
 
 # --- Theme analysis (with Dutch stopwords in wordcloud) ---
 doc.add_heading("5. Thema-analyse", level=1)

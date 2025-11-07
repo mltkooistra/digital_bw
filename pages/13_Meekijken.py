@@ -60,8 +60,8 @@ def norm_text(s: str) -> str:
     s = re.sub(r"\s+", " ", s)
     return s
 
+# Match the edit page options
 REACH_OPTIONS = [
-    "-- geen antwoord --",
     "individueel/huishouden",
     "de buurt",
     "wijk/dorp",
@@ -70,46 +70,52 @@ REACH_OPTIONS = [
     "landelijk",
     "internationaal",
 ]
+WHEN_OPTIONS = ["direct", "weken", "maanden", "jaren", "meer dan 15 jaar"]
 
 def feedback_ui(row, idx, label, disabled=True):
     st.markdown(f"### {row.get('domein','')}: {row['text']}")
+
+    # Q1 — same wording + examples
     st.text_input(
-        "1. Op welke groepen is het effect het grootst?",
+        "1. Voor wie is dit effect het grootst? (bijv. huiseigenaren, mensen met een laag inkomen, ouderen, jongeren, etc.)",
         key=f"{label}_{idx}_q1_ro",
         disabled=disabled,
-        placeholder="— alleen bekijken —"
-    )
-    st.text_input(
-        "2. Op welke gebied(en) is het effect het grootst?",
-        key=f"{label}_{idx}_q2_ro",
-        disabled=disabled,
-        placeholder="— alleen bekijken —"
+        placeholder="— alleen bekijken —",
     )
 
-    # 🔁 SHOW MC OPTIONS EXPLICITLY (radio shows all choices even when disabled)
-    st.radio(
-        "3. Hoe ver reikt het effect?",
+    # Q2 — multiselect reach (same options)
+    st.multiselect(
+        "2. Hoe ver reikt het effect? (meerdere antwoorden mogelijk)",
         options=REACH_OPTIONS,
-        index=0,
-        key=f"{label}_{idx}_q_reikwijdte_ro",
-        disabled=True,
-        help="Alle opties zichtbaar; keuze kan hier niet aangepast worden."
+        default=[],
+        help="Kies alle niveaus waarop het effect relevant is.",
+        key=f"{label}_{idx}_q_reikwijdte_list_ro",
+        disabled=disabled,
     )
 
-    st.slider(
-        "4. Wanneer verwacht je dat het effect zichtbaar wordt?",
-        min_value=0, max_value=50, value=0, step=1,
-        format="%d jaar",
-        help="0 = meteen vanaf de start, 50 = pas over 50 jaar of later",
-        key=f"{label}_{idx}_q_start_year_ro",
-        disabled=disabled
+    # Q3 — categorical when (same options)
+    st.selectbox(
+        "3. Wanneer verwacht je dat het effect zichtbaar wordt?",
+        options=WHEN_OPTIONS,
+        index=0,
+        help="Kies de orde van grootte tot het effect zichtbaar is.",
+        key=f"{label}_{idx}_q_start_cat_ro",
+        disabled=disabled,
     )
+
+    # Q4 — conditional phrasing
+    if label.lower().startswith("pos"):
+        q4_label = "4. Zijn er aanpassingen mogelijk om het effect te versterken? (overslaan mogelijk)"
+    else:
+        q4_label = "4. Zijn er aanpassingen mogelijk aan de interventie om dit effect te beperken of voorkomen?"
+
     st.text_input(
-        "5. Zijn er aanpassingen aan de interventie mogelijk of nodig?",
+        q4_label,
         key=f"{label}_{idx}_q3_ro",
         disabled=disabled,
-        placeholder="— alleen bekijken —"
+        placeholder="— alleen bekijken —",
     )
+
     st.markdown("---")
 
 # ---------- DATA: votes ----------

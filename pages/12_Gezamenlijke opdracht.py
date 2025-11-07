@@ -1,3 +1,4 @@
+# pages/12_Gezamenlijke opdracht.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -7,13 +8,16 @@ import json
 from collections import Counter
 import re
 from urllib.parse import quote
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 # =========================
 # Page config
 # =========================
 st.set_page_config(page_title="Verdiepingsopdracht", layout="wide")
 st.title("Verdiepingsopdracht")
+
+# --- Quick toggle to see server responses & run a probe insert ---
+diagnose = st.sidebar.checkbox("🔧 Diagnose mode (toon server-antwoorden)", value=False)
 
 # --- Basischecks ---
 if "name" not in st.session_state or "access_code" not in st.session_state:
@@ -23,12 +27,12 @@ if "group_question_filler" not in st.session_state:
     st.error("Deze pagina is niet direct toegankelijk.")
     st.stop()
 
-session_code = st.session_state.access_code
+session_code = st.session_state.access_code     # REQUIRED by group_results
 display_name = st.session_state.name
 
 # --- Groep info ---
 selected_group = str(st.session_state.get("selected_group", "1"))
-group_name = f"Groep {selected_group}"
+group_name = f"Groep {selected_group}"         # REQUIRED by group_results
 st.info(f"Je zit in **{group_name}**.")
 
 # Headers voor Supabase
@@ -37,21 +41,29 @@ HEADERS = {
     "apikey": st.secrets["supabase_key"],
     "Authorization": f"Bearer {st.secrets['supabase_key']}",
     "Content-Type": "application/json",
-    "Prefer": "return=representation",
+    # Upsert-friendly: merge duplicates on the unique key and return rows
+    "Prefer": "return=representation,resolution=merge-duplicates",
 }
 
 # =========================
-# JSON sanitizers to avoid InvalidJSONError
+# JSON sanitizers (containers first; no empty-array truthiness)
 # =========================
+def _is_scalar(x) -> bool:
+    return np.isscalar(x) or isinstance(
+        x, (str, bytes, datetime, date, pd.Timestamp, np.generic, bool)
+    )
+
 def _is_na_like(x) -> bool:
-    """True for np.nan, pd.NA, pd.NaT, etc."""
+    if x is None:
+        return True
+    if not _is_scalar(x):
+        return False
     try:
-        return pd.isna(x)
+        return bool(pd.isna(x))
     except Exception:
         return False
 
 def _to_builtin_number(x):
-    # Normalize numpy/pandas numbers to Python ints/floats
     if isinstance(x, (np.integer,)):
         return int(x)
     if isinstance(x, (np.floating,)):
@@ -59,19 +71,18 @@ def _to_builtin_number(x):
         if math.isnan(xf) or math.isinf(xf):
             return None
         return xf
-    if isinstance(x, (int,)):
-        return int(x)
-    if isinstance(x, (float,)):
+    if isinstance(x, int):
+        return x
+    if isinstance(x, float):
         if math.isnan(x) or math.isinf(x):
             return None
-        return float(x)
+        return x
     return x
 
 def _to_serializable_datetime(x):
-    # Timestamps, dates, timedeltas
-    if isinstance(x, pd.Timestamp):
-        return x.isoformat()
-    if isinstance(x, datetime):
+    if isinstance(x, (pd.Timestamp, datetime)):
+        if isinstance(x, datetime) and x.tzinfo is None:
+            x = x.replace(tzinfo=timezone.utc)
         return x.isoformat()
     if isinstance(x, date):
         return x.isoformat()
@@ -83,41 +94,30 @@ def _to_serializable_datetime(x):
     return x
 
 def json_safe(value):
-    """
-    Recursively convert a structure into JSON-safe values:
-    - Replace NaN/Inf/NA/NaT with None
-    - Convert numpy/pandas scalars to builtin types
-    - Convert timestamps/timedeltas to strings
-    """
-    # None or NA-like
-    if _is_na_like(value):
-        return None
-
-    # Numbers
-    value = _to_builtin_number(value)
-
-    # Datetime-like
-    value = _to_serializable_datetime(value)
-
-    # Dict
+    # 0) dict first
     if isinstance(value, dict):
         return {str(k): json_safe(v) for k, v in value.items()}
-
-    # Iterables
-    if isinstance(value, (list, tuple, set)):
-        return [json_safe(v) for v in value]
-
-    # Numpy scalars (after earlier conversions)
+    # 1) pandas containers
+    if isinstance(value, pd.Series):
+        return json_safe(value.to_dict())
+    if isinstance(value, pd.DataFrame):
+        return [json_safe(r) for r in value.to_dict(orient="records")]
+    # 2) iterables
+    if isinstance(value, (np.ndarray, list, tuple, set)):
+        return [json_safe(v) for v in list(value)]
+    # 3) scalars
+    if _is_na_like(value):
+        return None
+    value = _to_builtin_number(value)
+    value = _to_serializable_datetime(value)
+    # 4) numpy scalars
     if isinstance(value, (np.bool_,)):
         return bool(value)
     if isinstance(value, (np.str_, np.bytes_)):
         return str(value)
-
-    # Everything else: str, bool, None, already-safe numbers
     return value
 
 def _assert_jsonable(payload):
-    """Validate by trying json.dumps with allow_nan=False for clearer local errors."""
     json.dumps(payload, allow_nan=False)
 
 def post_json(url: str, body: dict, headers_: dict, timeout: int = 15):
@@ -137,7 +137,6 @@ def normalize_name(s: str) -> str:
     return re.sub(r"\s+", " ", str(s or "").strip().lower())
 
 def get_my_group_row(session_code: str, name_value: str, group_value: str) -> dict | None:
-    """Fetch the groups row for (session, name, group)."""
     base = f"{BASE_URL}/rest/v1/groups"
     q = (
         f"?select=id,session,name,group,leader"
@@ -154,7 +153,6 @@ def get_my_group_row(session_code: str, name_value: str, group_value: str) -> di
     return rows[0] if rows else None
 
 def get_existing_leaders(session_code: str, group_value: str) -> list[dict]:
-    """Fetch all rows with leader='yes' for (session, group)."""
     base = f"{BASE_URL}/rest/v1/groups"
     q = (
         f"?select=id,name,leader,group"
@@ -169,17 +167,11 @@ def get_existing_leaders(session_code: str, group_value: str) -> list[dict]:
     return r.json() or []
 
 def ensure_current_row_exists(session_code: str, name_value: str, group_value: str) -> dict | None:
-    """Ensure a groups row exists for (session, name, group); create if needed (leader defaults to 'no')."""
     row = get_my_group_row(session_code, name_value, group_value)
     if row:
         return row
     base = f"{BASE_URL}/rest/v1/groups"
-    payload = {
-        "session": session_code,
-        "name": name_value,
-        "group": group_value,
-        "leader": "no",
-    }
+    payload = {"session": session_code, "name": name_value, "group": group_value, "leader": "no"}
     r = post_json(base, payload, HEADERS, timeout=10)
     if r.status_code not in (200, 201):
         st.error(f"Kon groepsrecord niet aanmaken: {r.status_code} {r.text}")
@@ -188,18 +180,11 @@ def ensure_current_row_exists(session_code: str, name_value: str, group_value: s
     return rows[0] if rows else None
 
 def take_over_leadership(session_code: str, name_value: str, group_value: str) -> bool:
-    """
-    Make current user leader='yes' for (session, name, group).
-    Also (softly) demote other leaders to 'no' for the same session+group.
-    """
-    # 0) Ensure our row exists
     my_row = ensure_current_row_exists(session_code, name_value, group_value)
     if not my_row:
         return False
 
     base = f"{BASE_URL}/rest/v1/groups"
-
-    # 1) Demote others (optional but keeps a single leader for the group)
     try:
         r_demote = patch_json(
             f"{base}"
@@ -216,14 +201,8 @@ def take_over_leadership(session_code: str, name_value: str, group_value: str) -
     except Exception as e:
         st.warning(f"Kon eerdere leider(s) niet terugzetten: {e}")
 
-    # 2) Set ourselves to leader='yes'
     try:
-        r_patch = patch_json(
-            f"{base}?id=eq.{my_row['id']}",
-            {"leader": "yes"},
-            HEADERS,
-            timeout=10
-        )
+        r_patch = patch_json(f"{base}?id=eq.{my_row['id']}", {"leader": "yes"}, HEADERS, timeout=10)
         if r_patch.status_code not in (200, 204):
             st.error(f"Kon leiderschap niet overnemen: {r_patch.status_code} {r_patch.text}")
             return False
@@ -234,7 +213,6 @@ def take_over_leadership(session_code: str, name_value: str, group_value: str) -
     return True
 
 def majority_direction(series: pd.Series):
-    """Return majority 'pos' or 'neg' from series; tie -> None."""
     if series is None or len(series) == 0:
         return None
     vals = [str(v).strip().lower() for v in series if pd.notna(v) and str(v).strip() != ""]
@@ -254,20 +232,41 @@ def norm_text(s: str) -> str:
     s = re.sub(r"\s+", " ", s)
     return s
 
+# --- OPTIONS ---
 REACH_OPTIONS = [
-    "-- geen antwoord --", "individueel/huishouden", "de buurt", "wijk/dorp", "stad of gemeente",
+    "individueel/huishouden", "de buurt", "wijk/dorp", "stad of gemeente",
     "provincie", "landelijk", "internationaal",
 ]
+WHEN_OPTIONS = ["direct", "weken", "maanden", "jaren", "meer dan 15 jaar"]
 
+# =========================
+# Feedback UI
+# =========================
 def feedback_ui(row, idx, label):
     st.markdown(f"### {row.get('domein','')}: {row['text']}")
-    st.text_input("1. Op welke groepen is het effect het grootst?", key=f"{label}_{idx}_q1")
-    st.text_input("2. Op welke gebied(en) is het effect het grootst?", key=f"{label}_{idx}_q2")
-    st.selectbox("3. Hoe ver reikt het effect?", options=REACH_OPTIONS, index=0, key=f"{label}_{idx}_q_reikwijdte")
-    st.slider("4. Wanneer verwacht je dat het effect zichtbaar wordt?", min_value=0, max_value=50, value=0, step=1,
-              format="%d jaar", help="0 = meteen vanaf de start, 50 = pas over 50 jaar of later",
-              key=f"{label}_{idx}_q_start_year")
-    st.text_input("5. Zijn er aanpassingen aan de interventie mogelijk of nodig?", key=f"{label}_{idx}_q3")
+    st.text_input(
+        "1. Voor wie is dit effect het grootst? (bijv. huiseigenaren, mensen met een laag inkomen, ouderen, jongeren, etc.)",
+        key=f"{label}_{idx}_q1"
+    )
+    st.multiselect(
+        "2. Hoe ver reikt het effect? (meerdere antwoorden mogelijk)",
+        options=REACH_OPTIONS,
+        default=[],
+        help="Kies alle niveaus waarop het effect relevant is.",
+        key=f"{label}_{idx}_q_reikwijdte_list",
+    )
+    st.selectbox(
+        "3. Wanneer verwacht je dat het effect zichtbaar wordt?",
+        options=WHEN_OPTIONS,
+        index=0,
+        help="Kies de orde van grootte tot het effect zichtbaar is.",
+        key=f"{label}_{idx}_q_start_cat",
+    )
+    if label.lower().startswith("pos"):
+        q4_label = "4. Zijn er aanpassingen mogelijk om het effect te versterken? (overslaan mogelijk)"
+    else:
+        q4_label = "4. Zijn er aanpassingen mogelijk aan de interventie om dit effect te beperken of voorkomen?"
+    st.text_input(q4_label, key=f"{label}_{idx}_q3")
     st.markdown("---")
 
 # =========================
@@ -300,7 +299,7 @@ if not current_is_leader:
                 st.stop()
             if take_over_leadership(session_code, display_name, group_name):
                 st.success("Je bent nu groepsleider. Deze pagina wordt herladen.")
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("Overnemen van leiderschap is mislukt. Probeer opnieuw of neem contact op met de organisator.")
                 st.stop()
@@ -363,26 +362,30 @@ if not df_sub.empty and {"text", "direction"}.issubset(df_sub.columns):
     df_sub["text_norm"] = df_sub["text"].map(norm_text)
     sub_agg = (
         df_sub.groupby("text_norm", dropna=False)["direction"]
-        .apply(majority_direction)
-        .reset_index(name="dir_maj")
+        .apply(lambda s: s.dropna().tolist())
+        .reset_index(name="dirs")
     )
+    sub_agg["dir_maj"] = sub_agg["dirs"].apply(lambda lst: majority_direction(pd.Series(lst)))
     direction_from_sub = {r["text_norm"]: r["dir_maj"] for _, r in sub_agg.iterrows() if r["text_norm"] != ""}
 
 # =========================
 # Aggregate ALL voted items
 # =========================
+def _maj_dir_from_series(s):
+    return majority_direction(pd.Series([v for v in s if pd.notna(v)]))
+
 agg = (
     df_votes.groupby("group_id", dropna=False)
     .agg(
         votes=("votes", "sum"),
         text=("text", "first"),
         domein=("domein", "first"),
-        direction_votes=("direction", lambda s: majority_direction(pd.Series([v for v in s if pd.notna(v)]))),
+        direction_votes=("direction", _maj_dir_from_series),
     )
     .reset_index()
 )
 
-# Koppel direction uit submissions per text (norm)
+# Resolve direction from submissions if available
 agg["text_norm"] = agg["text"].map(norm_text)
 agg["direction_from_sub"] = agg["text_norm"].map(direction_from_sub)
 
@@ -394,24 +397,19 @@ def pick_direction(row):
 agg["direction_resolved"] = agg.apply(pick_direction, axis=1)
 
 # =========================
-# Top 3 positief en top 3 negatief
+# UI (render top-3 pos/neg for inputs)
 # =========================
 top_pos = (
     agg[agg["direction_resolved"] == "pos"]
     .sort_values("votes", ascending=False)
-    .head(3)
-    .reset_index(drop=True)
+    .head(3).reset_index(drop=True)
 )
 top_neg = (
     agg[agg["direction_resolved"] == "neg"]
     .sort_values("votes", ascending=False)
-    .head(3)
-    .reset_index(drop=True)
+    .head(3).reset_index(drop=True)
 )
 
-# =========================
-# UI
-# =========================
 st.header("Top 3 Positieve effecten (meeste stemmen)")
 if top_pos.empty:
     st.info("Geen positieve effecten gevonden.")
@@ -427,41 +425,137 @@ else:
         feedback_ui(row, i, "Neg")
 
 # =========================
-# Opslaan (JSON-safe payloads)
+# Helpers: insert with retry if jsonb mismatch, + optional probe
+# =========================
+UPSERT_URL = f"{BASE_URL}/rest/v1/group_results?on_conflict=session,%22group%22,text"
+
+def try_insert(payload: dict):
+    """
+    1) Try as-is (arrays for feedback_*).
+    2) If 400/415 with json type complaints, retry once converting lists -> JSON strings.
+    Returns (ok: bool, status: int, text: str)
+    """
+    r = post_json(UPSERT_URL, payload, HEADERS, timeout=15)
+    if r.status_code in (200, 201):
+        return True, r.status_code, r.text
+
+    err_txt = (r.text or "").lower()
+    needs_string_retry = ("jsonb" in err_txt or "type" in err_txt or "invalid input syntax for type" in err_txt)
+
+    if needs_string_retry:
+        payload2 = payload.copy()
+        for k in ("feedback_place_impact", "feedback_distance"):
+            v = payload2.get(k, [])
+            if isinstance(v, list):
+                payload2[k] = json.dumps(v, ensure_ascii=False)
+        r2 = post_json(UPSERT_URL, payload2, HEADERS, timeout=15)
+        if r2.status_code in (200, 201):
+            return True, r2.status_code, r2.text
+        return False, r2.status_code, r2.text
+
+    return False, r.status_code, r.text
+
+def probe_insert():
+    """
+    Insert a harmless probe row to reveal RLS / type issues up front.
+    Will upsert the same key so it won't accumulate.
+    """
+    payload = {
+        "session": session_code,
+        "group": group_name,
+        "text": "__probe__",
+        "domein": "",
+        "direction": None,
+        "feedback_group_impact": "",
+        "feedback_place_impact": [],     # will retry as string if needed
+        "feedback_distance": [],
+        "feedback_improvements": "",
+        "feedback_start": "direct",
+    }
+    ok, status, txt = try_insert(payload)
+    return ok, status, txt
+
+# =========================
+# Save EVERY effect to public.group_results via UPSERT
+# (unique key: session,"group",text)
 # =========================
 if st.button("✅ Versturen"):
+    # -- optional probe first so we fail fast with a clear message --
+    if diagnose:
+        pok, pstatus, ptxt = probe_insert()
+        st.info(f"Probe insert -> ok={pok}, status={pstatus}")
+        if not pok:
+            st.error("Probe insert is mislukt. Waarschijnlijk RLS of type-mismatch.")
+            if ptxt:
+                st.code(ptxt, language="json")
+            st.stop()
+
     ok = 0
-    base = f"{BASE_URL}/rest/v1/group_results?on_conflict=group,text"
+    rows_debug = []
 
-    for label, group_df in [("Pos", top_pos), ("Neg", top_neg)]:
-        for idx, row in group_df.iterrows():
-            dir_to_save = row.get("direction_from_sub") or row.get("direction_votes")
+    for idx_all, row in agg.sort_values("votes", ascending=False).reset_index(drop=True).iterrows():
+        # Map UI inputs if this effect was visible in the top lists
+        label = None
+        ui_idx = None
+        for i, rpos in top_pos.iterrows():
+            if rpos["text"] == row["text"]:
+                label, ui_idx = "Pos", i
+                break
+        if label is None:
+            for i, rneg in top_neg.iterrows():
+                if rneg["text"] == row["text"]:
+                    label, ui_idx = "Neg", i
+                    break
 
-            # group_id might not be present in agg; guard NaN -> None if present
-            gid = row.get("group_id", None)
-            if _is_na_like(gid):
-                gid = None
+        # Defaults if not in UI
+        reach_list = []
+        when_choice = WHEN_OPTIONS[0]
+        q1 = ""
+        q3 = ""
 
-            payload = {
-                "session": session_code,
-                "group": group_name,
-                "text": row["text"],
-                "domein": row.get("domein", ""),
-                "direction": dir_to_save,
-                "feedback_group_impact": st.session_state.get(f"{label}_{idx}_q1", ""),
-                "feedback_place_impact": st.session_state.get(f"{label}_{idx}_q2", ""),
-                "feedback_distance": st.session_state.get(f"{label}_{idx}_q_reikwijdte", ""),
-                "feedback_improvements": st.session_state.get(f"{label}_{idx}_q3", ""),
-                "feedback_start": st.session_state.get(f"{label}_{idx}_q_start_year", 0),
-                "group_id": gid,
-            }
+        if label is not None:
+            reach_list = st.session_state.get(f"{label}_{ui_idx}_q_reikwijdte_list", []) or []
+            when_choice = st.session_state.get(f"{label}_{ui_idx}_q_start_cat", WHEN_OPTIONS[0])
+            q1 = st.session_state.get(f"{label}_{ui_idx}_q1", "") or ""
+            q3 = st.session_state.get(f"{label}_{ui_idx}_q3", "") or ""
 
-            r = post_json(base, payload, HEADERS, timeout=15)
-            if r.status_code in (200, 201):
-                ok += 1
-            else:
-                st.error(f"Opslaan mislukt voor “{row['text']}”: {r.status_code} {r.text}")
+        # Safe, non-empty text to satisfy RLS WITH CHECK and upsert key
+        safe_text = (row.get("text") or "").strip() or "(zonder tekst)"
 
-    st.success(f"Feedback opgeslagen ({ok} items).")
+        payload = {
+            "session": session_code,                     # unique key part
+            "group": group_name,                         # unique key part
+            "text": safe_text,                           # unique key part
+            "domein": row.get("domein", ""),             # requires column in table (else ignored)
+            "direction": row.get("direction_resolved", None),
+            "feedback_group_impact": q1,
+            "feedback_place_impact": reach_list,         # json array (retry will send as string)
+            "feedback_distance": reach_list,             # mirror legacy
+            "feedback_improvements": q3,
+            "feedback_start": when_choice,
+        }
+
+        ins_ok, status, txt = try_insert(payload)
+        if diagnose:
+            rows_debug.append({
+                "text": safe_text,
+                "status": status,
+                "ok": ins_ok,
+                "response": txt[:500] if isinstance(txt, str) else str(txt)
+            })
+
+        if ins_ok:
+            ok += 1
+        else:
+            st.error(f"Opslaan mislukt voor “{safe_text}”: {status}")
+            if txt:
+                st.code(txt, language="json")
+
+    if diagnose:
+        st.subheader("📜 Insert log")
+        if rows_debug:
+            st.dataframe(pd.DataFrame(rows_debug))
+
+    st.success(f"Feedback opgeslagen/bijgewerkt ({ok} items).")
     st.session_state["group_answers_submitted"] = True
     st.switch_page("pages/14_Rapport.py")

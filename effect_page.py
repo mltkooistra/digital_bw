@@ -3,7 +3,7 @@ import streamlit as st
 import requests
 import uuid
 import pandas as pd
-from urllib.parse import quote  # for URL-safe name filter
+from urllib.parse import quote  # for URL-safe filters
 
 def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
     st.set_page_config(page_title=f"Effect op {domain}", layout="wide")
@@ -55,14 +55,13 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
     # --- Laden van bestaande effecten (alleen van deze persoon) ---
     if not st.session_state[domain]["loaded"]:
         try:
-            # URL-safe name for filters
             name_eq = quote(current_name, safe="")
 
             q = (
                 f"?select=id,text,score,direction,posneg,submission_id,session,domain,name"
                 f"&submission_id=eq.{st.session_state.submission_id}"
                 f"&domain=eq.{domain}"
-                f"&name=eq.{name_eq}"  # filter by same person
+                f"&name=eq.{name_eq}"
             )
             r = requests.get(BASE + q, headers=headers(), timeout=10)
             rows = r.json() if r.ok else []
@@ -73,12 +72,12 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
                     f"?select=id,text,score,direction,posneg,submission_id,session,domain,name"
                     f"&session=eq.{st.session_state.access_code}"
                     f"&domain=eq.{domain}"
-                    f"&name=eq.{name_eq}"  # filter by same person
+                    f"&name=eq.{name_eq}"
                 )
                 r2 = requests.get(BASE + q2, headers=headers(), timeout=10)
                 rows = r2.json() if r2.ok else []
 
-            # Extra safety: client-side filter by exact name
+            # Client-side exact name check
             rows = [row for row in rows if str(row.get("name", "")) == current_name]
 
             for row in rows:
@@ -95,14 +94,16 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
                         dir_val = "pos"
                 etype = "positive" if dir_val == "pos" else "negative"
 
-                st.session_state[domain][etype].append({
-                    "id": str(uuid.uuid4()),
-                    "text": row.get("text", ""),
-                    "score": 1,  # force 1 locally even if DB has something else
-                    "direction": dir_val,
-                    "mode": "view",
-                    "row_id": row.get("id"),
-                })
+                st.session_state[domain][etype].append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "text": row.get("text", ""),
+                        "score": 1,  # force 1 locally
+                        "direction": dir_val,
+                        "mode": "view",
+                        "row_id": row.get("id"),
+                    }
+                )
             st.session_state[domain]["loaded"] = True
         except Exception as e:
             st.warning(f"Kon eerdere antwoorden niet laden: {e}")
@@ -113,11 +114,10 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
         info = info_df[info_df["domein"] == domain]
         info_text = info["introductietekst"].iloc[0]
         questions = info["hulpvragen"].iloc[0].split("-")
-        question_list = "\n".join([f"- {q.strip()}" for q in questions if q.strip()])
-        question_text = "<br>".join([q.strip() for q in questions])
+        question_text = "<br>".join([q.strip() for q in questions if q.strip()])
         link = info["link_GR"].iloc[0] if st.session_state.prov == "GR" else info["link_DR"].iloc[0]
     except Exception:
-        info_text, question_list, link = "", "", "#"
+        info_text, question_text, link = "", "", "#"
 
     # --- Info UI ---
     st.markdown(
@@ -180,13 +180,13 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
             data["name"] = str(st.session_state["name"])
 
         try:
-            # --- Lookup of er al iets bestaat ---
+            # --- Lookup of er al iets bestaat (zelfde submission/domain/text) ---
             row_id = effect.get("row_id")
             if not row_id:
                 q = (
                     f"?select=id"
-                    f"&submission_id=eq.{data['submission_id']}"
-                    f"&domain=eq.{data['domain']}"
+                    f"&submission_id=eq.{quote(data['submission_id'], safe='')}"
+                    f"&domain=eq.{quote(data['domain'], safe='')}"
                     f"&text=eq.{quote(data['text'], safe='')}"
                 )
                 r_lookup = requests.get(BASE + q, headers=headers(False), timeout=10)
@@ -229,7 +229,7 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
             st.error(f"⚠️ Verwijderen mislukt: {e}")
 
     # =======================================================
-    #  RENDER FUNCTIE
+    #  RENDER FUNCTIE (flattened columns, geen nesting)
     # =======================================================
     def render_effect(effect, etype, idx):
         with st.container(border=True):
@@ -248,33 +248,39 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
                         effect["mode"] = "view"
                         st.rerun()
             else:
-                c1, c2 = st.columns([7, 1])
-                with c1:
+                # One flat row: [text] [edit] [delete]
+                # 'vertical_alignment' is available in newer Streamlit versions; fall back gracefully.
+                try:
+                    c_text, c_edit, c_del = st.columns([10, 1, 1], gap="small", vertical_alignment="center")
+                except TypeError:
+                    c_text, c_edit, c_del = st.columns([10, 1, 1])
+
+                with c_text:
                     st.markdown(effect.get("text") or "_(geen tekst)_")
-                with c2:
-                    col_e, col_d = st.columns([1, 1])
-                    with col_e:
-                        if st.button("✏️", key=f"{etype}_edit_{effect['id']}"):
-                            effect["mode"] = "edit"
-                            st.rerun()
-                    with col_d:
-                        if st.button("🗑️", key=f"{etype}_del_{effect['id']}"):
-                            delete_effect(effect)
-                            st.session_state[domain][etype] = [
-                                e for e in st.session_state[domain][etype] if e["id"] != effect["id"]
-                            ]
-                            st.rerun()
+
+                with c_edit:
+                    if st.button("✏️", key=f"{etype}_edit_{effect['id']}", help="Bewerken"):
+                        effect["mode"] = "edit"
+                        st.rerun()
+
+                with c_del:
+                    if st.button("🗑️", key=f"{etype}_del_{effect['id']}", help="Verwijderen"):
+                        delete_effect(effect)
+                        st.session_state[domain][etype] = [
+                            e for e in st.session_state[domain][etype] if e["id"] != effect["id"]
+                        ]
+                        st.rerun()
 
     # =======================================================
     #  UI
     # =======================================================
-    col_pos, col_neg = st.columns(2)
+    col_pos, col_neg = st.columns(2, gap="large")
 
     with col_pos:
         st.header("✅ Positieve effecten")
         for i, e in enumerate(st.session_state[domain]["positive"]):
             render_effect(e, "positive", i)
-        if st.button("➕ Voeg positief effect toe"):
+        if st.button("➕ Voeg positief effect toe", key=f"add_pos_{domain}"):
             st.session_state[domain]["positive"].append(_new_entry("pos"))
             st.rerun()
 
@@ -282,12 +288,12 @@ def render_effect_page(*, domain: str, domain_index: int, next_domain: str):
         st.header("❌ Negatieve effecten")
         for i, e in enumerate(st.session_state[domain]["negative"]):
             render_effect(e, "negative", i)
-        if st.button("➕ Voeg negatief effect toe"):
+        if st.button("➕ Voeg negatief effect toe", key=f"add_neg_{domain}"):
             st.session_state[domain]["negative"].append(_new_entry("neg"))
             st.rerun()
 
     st.divider()
     st.info("Je kunt elk effect afzonderlijk opslaan of verwijderen.", icon="💡")
 
-    if st.button(f"➡️ Ga door naar het volgende domein: {next_domain}"):
+    if st.button(f"➡️ Ga door naar het volgende domein: {next_domain}", key=f"next_{domain}"):
         st.switch_page(f"pages/{domain_index + 1}_{next_domain}.py")
